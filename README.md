@@ -9,6 +9,10 @@
 
 ## 개발 시작
 
+Linux·macOS 터미널에서 실행한다. **Windows는 WSL2 Ubuntu 안에서** 실행하고, 저장소는 WSL 홈(`~/`)에
+clone한다 (`/mnt/c` 아래 금지). 필요 도구: Docker(Compose v2), restic, uv, make.
+설치 방법은 [온보딩 3절](docs/onboarding.md#3-개발-환경-준비).
+
 ```sh
 make install      # uv sync
 make lint test
