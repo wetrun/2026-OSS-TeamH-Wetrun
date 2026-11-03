@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# testenv: 비밀 값·데이터·생성물
+testenv/.env
+testenv/data/
+testenv/samples/
+testenv/dataset/
+testenv/refs.json
+testenv/docker-compose.yml
+
+# 실행 결과
+runs/
+
+# 에디터·OS
+.vscode/
+.idea/
+.DS_Store
