@@ -15,4 +15,14 @@ lint:
 test:
 	uv run pytest
 
-.PHONY: install fmt lint test
+# testenv: 개발·평가용 Immich (testenv/README.md)
+env-up:
+	testenv/up.sh
+
+env-down:
+	testenv/down.sh
+
+env-clean:
+	testenv/down.sh --clean
+
+.PHONY: install fmt lint test env-up env-down env-clean
