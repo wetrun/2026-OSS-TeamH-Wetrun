@@ -19,10 +19,13 @@ test:
 env-up:
 	testenv/up.sh
 
+seed:
+	uv run python testenv/seed.py
+
 env-down:
 	testenv/down.sh
 
 env-clean:
 	testenv/down.sh --clean
 
-.PHONY: install fmt lint test env-up env-down env-clean
+.PHONY: install fmt lint test env-up seed env-down env-clean
