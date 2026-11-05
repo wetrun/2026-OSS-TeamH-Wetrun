@@ -1,4 +1,4 @@
-# testenv 스크립트 공통 함수. up.sh, down.sh가 source해서 쓴다 (직접 실행하지 않는다).
+# testenv 스크립트 공통 함수. up.sh, down.sh, backup.sh가 source해서 쓴다 (직접 실행하지 않는다).
 
 # 오류 메시지를 출력하고 멈춘다
 die() {
