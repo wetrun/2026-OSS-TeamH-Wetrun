@@ -35,6 +35,7 @@ make env-clean YES=1   # 묻지 않고 삭제 (스크립트·반복 시험용)
 ```
 
 `make env-up`이 끝나면 http://localhost:2283 에서 접속한다.
+포트는 이 컴퓨터(`127.0.0.1`)에서만 열린다. 다른 기기에서 접속해야 하면 `.env`의 `TESTENV_BIND_ADDR`를 `0.0.0.0`으로 바꾸고 `make env-up`을 다시 한다 (같은 네트워크의 누구나 공개된 테스트 비밀번호로 로그인할 수 있으니 주의).
 `make seed` 후에는 `.env.example`의 테스트 계정(`teamh@wetrun.test` / `testpwd`)으로 로그인한다.
 
 ## seed가 만드는 데이터

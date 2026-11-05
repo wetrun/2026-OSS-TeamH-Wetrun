@@ -16,6 +16,7 @@ testenv/refs.json
 testenv/docker-compose.yml
 testenv/docker-compose.*.yml
 testenv/docker-compose.*.yml.tmp
+testenv/docker-compose.yml.tmp
 testenv/.env.tmp
 
 # 실행 결과
