@@ -1,6 +1,7 @@
 from pathlib import Path
+from unittest import mock
 
-from wetrun.isolation import sanitize, violations
+from wetrun.isolation import check_user, sanitize, violations
 
 RUN = Path("/run/wetrun-x")
 
@@ -39,3 +40,10 @@ def test_sanitize_removes_overlap_and_isolates_network():
     assert "container_name" not in app and "ports" not in app
     assert app["labels"]["wetrun.project"] == "wetrun-x"
     assert out["networks"] == {"default": {"internal": True}}
+
+
+def test_check_user_matches_runner_but_never_root():
+    with mock.patch("os.getuid", return_value=1000), mock.patch("os.getgid", return_value=1000):
+        assert check_user() == "1000:1000"
+    with mock.patch("os.getuid", return_value=0):
+        assert check_user() == "65534:65534"

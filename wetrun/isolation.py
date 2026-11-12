@@ -127,6 +127,16 @@ def prepare(
     return out
 
 
+def check_user() -> str:
+    """검사 컨테이너 사용자. 실행 디렉터리의 0600 파일(step.json)을 읽고 out/에 쓸 수 있게
+    실행기와 같은 uid로 띄운다. root로 실행되면 검사까지 root가 되지 않게 nobody로 낮춘다.
+
+    ponytail: root 실행 시 실행기가 step.json·out/을 65534로 chown해야 한다.
+    """
+    uid = os.getuid()
+    return "65534:65534" if uid == 0 else f"{uid}:{os.getgid()}"
+
+
 def hardening_args(
     project: str, network: str, memory: str = "512m", cpus: str = "1", pids: int = 256
 ) -> list[str]:
@@ -141,7 +151,7 @@ def hardening_args(
         "--tmpfs", "/tmp",
         "--cap-drop", "ALL",
         "--security-opt", "no-new-privileges",
-        "--user", "65534:65534",
+        "--user", check_user(),
         "--memory", memory,
         "--cpus", cpus,
         "--pids-limit", str(pids),
