@@ -1,0 +1,64 @@
+# Immich 복구 검증 워크플로 (testenv용)
+#
+# testenv(`make env`)가 만든 파일을 가리킨다. 상대 경로는 이 파일 위치 기준이다.
+# 다른 Immich에 쓸 때는 repository, snapshot, compose, refs 경로와 account를 바꾼다.
+#
+# 실행 (testenv 값):
+#   export RESTIC_PASSWORD=resticpwd TESTENV_ADMIN_PASSWORD=testpwd
+#   uv run wetrun check-input profiles/immich/workflow.yaml
+#   uv run wetrun run profiles/immich/workflow.yaml
+
+version: 1
+
+repository:
+  path: ../../testenv/data/restic-repo
+  password: env:RESTIC_PASSWORD
+
+snapshot: {tag: testenv, select: latest}
+
+compose:
+  files: [../../testenv/docker-compose.yml]
+  env_file: ../../testenv/.env
+  env:
+    UPLOAD_LOCATION: "{restore}/data/library"
+    DB_DATA_LOCATION: "{run}/postgres"
+
+refs: ../../testenv/refs.json
+
+steps:
+  - {use: restore}
+
+  # DB만 먼저 띄워 덤프를 넣는다
+  - {use: up, name: up-db, services: [database]}
+
+  # pg_dumpall --clean 덤프에는 접속 사용자 자신을 지우고 만드는 두 줄이 있다.
+  # ON_ERROR_STOP을 켜면 정상 덤프도 그 줄에서 멈추므로 두 줄만 걸러 낸다 (#13).
+  # 덤프가 immich DB를 지우고 다시 만들기 때문에 postgres DB로 접속한다.
+  - use: exec
+    name: restore-db
+    service: database
+    command: [sh, -c, "sed -e '/^DROP ROLE IF EXISTS postgres;$/d' -e '/^CREATE ROLE postgres;$/d' | psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q"]
+    stdin: "{restore}/data/backup/immich.sql"
+    timeout: 600
+
+  # 머신러닝은 로그인·목록·다운로드 확인에 쓰지 않아 띄우지 않는다 (메모리 약 35% 절약, #13)
+  - {use: up, services: [immich-server, redis, database]}
+
+  - {use: http, name: ready, url: "http://immich-server:2283/api/server/ping", timeout: 120}
+
+  - use: ref_files
+    name: photos
+    url: http://immich-server:2283
+    account: {email: teamh@wetrun.test, password: env:TESTENV_ADMIN_PASSWORD}
+    login: {path: /api/auth/login, token: accessToken}
+    assets:
+      path: /api/search/metadata
+      body: {size: 1000, page: 1}
+      items: assets.items
+      name: originalFileName
+      checksum: checksum
+      encoding: base64  # Immich는 SHA-1을 base64로 기록한다
+      page: page
+      next: assets.nextPage
+    download: /api/assets/{id}/original
+    albums: {path: /api/albums, name: albumName, count: assetCount}
