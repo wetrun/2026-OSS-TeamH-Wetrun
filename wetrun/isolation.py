@@ -27,7 +27,7 @@ RUN_LABEL = "wetrun.project"
 # ponytail: 다른 uid(예: DB 컨테이너)가 만든 파일을 지울 때 쓰는 이미지. 오프라인이면 미리 pull 필요
 CLEANUP_IMAGE = "alpine:3"
 
-# 읽기 전용이면 허용하는 호스트 파일. 시간대를 맞추려고 공식 compose에 흔히 있다(예: Immich)
+# 읽기 전용이면 허용하는 호스트 파일. 시간대를 맞추려고 공식 compose에 흔히 있다
 READ_ONLY_HOST_FILES = {"/etc/localtime", "/etc/timezone"}
 
 _PROJECT_RE = re.compile(r"^wetrun-[a-z0-9][a-z0-9-]*$")
