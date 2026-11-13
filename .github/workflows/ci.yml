@@ -12,8 +12,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uv sync
-      - run: uv run ruff format --check .
-      - run: uv run ruff check .
-      - run: uv run pytest
-      - name: 실행기에 서비스 이름이 없어야 함 (일반화 규칙)
-        run: "! grep -rIil immich wetrun/"
+      # 로컬 make lint와 같은 검사 (서비스 이름 금지 규칙 포함)
+      - run: make lint
+      - run: make test

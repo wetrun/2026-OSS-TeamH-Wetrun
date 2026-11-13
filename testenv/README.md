@@ -93,6 +93,8 @@ Immich 버전은 `.env.example`의 `IMMICH_VERSION`(현재 v3.3.5)으로 고정�
 
 | 증상 | 원인·해결 |
 |---|---|
+| 처음 `make env`에서 `container ... immich-server-1 is unhealthy`로 멈춤 | 처음 기동할 때는 DB 초기화가 늦어 서버가 잠시 unhealthy로 잡힐 수 있다. 1~2분 뒤 `docker compose ps`로 healthy인지 확인하고 `make seed backup`을 이어서 실행한다 |
+| `wetrun run`을 돌리면 서비스가 종료 코드 137로 죽음 | 메모리 부족. 검증용 Immich가 하나 더 뜨므로, testenv Immich(약 1.5GB)와 함께 돌리려면 그만큼 여유가 필요하다. 부족하면 `make env-down` 후 실행한다 |
 | `data/`에서 `Permission denied` | Docker가 `data/`를 먼저 만들어 root 소유가 됨. `up.sh`는 폴더를 먼저 만들어 이를 막는다. 이미 생겼다면 `sudo chown "$USER": testenv/data` (`-R` 금지: Postgres가 켜지지 않는다) |
 | `failed to download docker-compose.yml` | 처음 실행이나 버전을 바꾼 직후에만 GitHub에 접속한다. VPN을 끄거나 다른 네트워크에서 재시도 |
 | `cannot connect to Docker` | Docker Desktop이 꺼져 있거나 WSL Integration에서 Ubuntu가 꺼져 있음 |
