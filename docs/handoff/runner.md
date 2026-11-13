@@ -12,7 +12,7 @@
 | 격리 변환, 정리 | `isolation.py` | 완료 (#11) |
 | 입력 검사 `wetrun check-input` | `workflow.py` | 완료 (#15) |
 | restic 연동 | `restic.py` | 완료 (#16) |
-| 실행 본체 `wetrun run` | `runner.py` | 리뷰 중 (#17) |
+| 실행 본체 `wetrun run` | `runner.py` | 완료 (#17) |
 | 예약 실행, 중복 실행 방지 | `schedule.py` | 시작 전 |
 
 ## 실행 방법
@@ -60,9 +60,10 @@ testenv 백업으로 끝까지 돌렸다. macOS + Colima, Immich v3.3.5, restic 
   - 서비스마다 상한(기본 `2g`, `compose.mem_limit`)이 있어, 넘치면 검증 컨테이너만 죽는다. 메모리 부족으로 실패한 단계는 `error`로 판정한다 (#17).
   - 합계는 묶지 않으므로, 합계가 넘치면 여전히 전역 OOM이 날 수 있다.
   - Immich는 ML을 띄우지 않으면 약 35% 줄어든다 (#13).
+- **일반 사용자로 복원하면 파일 소유자가 유지되지 않는다.** 서비스가 root로 만든 파일도 오류 없이 복원되지만, 소유자는 복원한 사용자가 된다 (#20). DB 데이터 폴더를 그대로 백업하는 서비스는 소유자가 달라 뜨지 않을 수 있으니 root로 실행한다. 덤프로 복원하는 Immich는 문제없다.
+- **Linux 확인 (CI, ubuntu 러너):** 실행기 통합 시험, 검사 컨테이너의 파일 권한(#11), root로 실행할 때 검사 파일 소유자 변경, root 소유 파일 복원 (#17, #20)
 - **확인하지 못한 것**
-  - Linux에서 직접 실행 (지금까지 macOS + Colima에서만 시험)
-  - root 소유 파일 복원
+  - 실제 Immich를 Linux에서 끝까지 돌리기 (macOS + Colima에서만 돌림)
   - 오래된 Compose에 `--wait-timeout`이 있는지
 - **중복 실행 방지가 없다.** 실행마다 프로젝트 이름이 달라 겹쳐도 안전하다. 예약 실행을 만들 때 추가한다.
 - **오프라인:** `alpine:3`(Docker 확인·정리용)과 `python:3.12-slim`(검사용)을 미리 받아 둬야 한다.
@@ -80,6 +81,6 @@ WETRUN_WORKDIR=~/.cache/wetrun-test uv run pytest tests/integration
 ## 다음 작업
 
 1. #13 합의 후 `contract.md` 4절에 실행기 단계 판정 규칙을 추가
-2. Linux에서 확인: root 실행, root 소유 파일 복원
+2. `ref_files`·Immich 프로필이 나오면 testenv로 사진 누락까지 끝까지 시험 (v0.1 완료 확인)
 3. 예약 실행: cron/systemd, 중복 실행 방지(락), restic에 필요한 `$HOME`
 4. 실행 이력으로 timeout 자동 조정, "평소보다 느림" 경고. 리포트 저장 형식이 정해진 뒤 한다
