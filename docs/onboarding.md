@@ -32,14 +32,22 @@ Wetrun은 Linux에서 동작한다. Windows는 WSL2 안에서, macOS는 그대�
    → Settings → Resources → WSL Integration → Ubuntu 켜기
 3. 이후 모든 작업은 **Ubuntu 터미널**에서 한다.
    ```sh
-   sudo apt update && sudo apt install -y git make restic
+   sudo apt update && sudo apt install -y git make bzip2
    curl -LsSf https://astral.sh/uv/install.sh | sh   # 또는 pipx install uv
+   ```
+4. restic은 **0.18 이상**을 [GitHub 릴리스](https://github.com/restic/restic/releases)에서 받는다.
+   apt 버전은 오래돼서(Ubuntu 22.04: 0.12, 24.04: 0.16) testenv와 실행기 판정이 맞지 않는다.
+   ```sh
+   curl -L https://github.com/restic/restic/releases/download/v0.18.0/restic_0.18.0_linux_amd64.bz2 \
+     | bunzip2 > restic && chmod +x restic && sudo mv restic /usr/local/bin/
    ```
 
 ### macOS
 
 1. `xcode-select --install` (git, make 포함)
-2. Docker Desktop 또는 OrbStack 설치
+2. Docker Desktop, OrbStack, Colima 중 하나 설치
+   - Docker가 VM 안에서 돌기 때문에 공유한 폴더만 컨테이너에서 보인다. 공유하지 않은 경로를 마운트하면 오류 없이 빈 폴더가 들어간다.
+   - Colima는 기본으로 홈 폴더만 공유한다. 저장소와 `WETRUN_WORKDIR`는 홈 아래에 둔다.
 3. ```sh
    brew install uv restic
    ```
@@ -48,7 +56,7 @@ Wetrun은 Linux에서 동작한다. Windows는 WSL2 안에서, macOS는 그대�
 
 ```sh
 docker compose version   # v2 이상
-restic version
+restic version            # 0.18 이상
 uv --version
 make --version
 ```
@@ -104,7 +112,8 @@ gh pr create --fill     # GitHub CLI(gh)가 있을 때. 없으면 GitHub 웹에�
 
 1. [handoff/](handoff/README.md): 공통 배경·일정, 자기 역할 파일
 1. [CONTRIBUTING.md](../CONTRIBUTING.md): 코드·커밋·PR 규칙
-2. `testenv/` 안내: 준비 중 (환경 담당)
+2. [testenv/README.md](../testenv/README.md): 개발·평가용 Immich 환경
+3. [handoff/runner.md](handoff/runner.md): 실행기 상태와 실행 방법 (`wetrun check-input`, `wetrun run`)
 
 ## 8. 자주 겪는 문제
 
@@ -115,5 +124,8 @@ gh pr create --fill     # GitHub CLI(gh)가 있을 때. 없으면 GitHub 웹에�
 | `Makefile: *** missing separator` | 명령 줄 들여쓰기가 스페이스. 탭으로 바꾼다 |
 | `Cannot connect to the Docker daemon` | Docker Desktop이 꺼져 있거나 WSL Integration이 꺼져 있음 |
 | Apple Silicon에서 이미지 실행 실패 | 이미지가 arm64를 지원하는지 확인. 지원하지 않으면 Linux 머신에서 테스트 |
+| `wetrun run`이 "Docker가 실행 디렉터리를 볼 수 없음"으로 멈춤 | macOS의 Docker가 그 경로를 공유하지 않음. `export WETRUN_WORKDIR=~/.cache/wetrun`처럼 홈 아래로 지정 |
+| `wetrun run`에서 서비스가 종료 코드 137로 죽음 | 메모리 부족. 검증 중에는 같은 서비스가 하나 더 뜨므로 그만큼 여유가 필요하다. 다른 컨테이너를 끄거나 Docker VM 메모리를 늘린다 |
+| `restic`이 `$HOME is not defined`로 실패 | restic은 캐시 폴더를 찾으려고 `HOME`이 필요하다. 예약 실행 등에서 `HOME`을 설정한다 |
 | CI의 ruff 실패 | `make fmt` 후 다시 커밋 |
-| CI의 "서비스 이름이 없어야 함" 실패 | `wetrun/`에 서비스 고유 내용이 들어감. `profiles/<서비스>/`로 옮긴다 |
+| `make lint`의 "서비스 이름이 있음" 실패 | `wetrun/`에 서비스 고유 내용이 들어감. 주석도 해당된다. `profiles/<서비스>/`로 옮긴다 |
