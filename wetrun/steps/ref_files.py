@@ -5,7 +5,12 @@
     2. 목록 대조: 기준 파일이 모두 있는지, 앨범의 파일 수가 줄지 않았는지
     3. 체크섬 대조: 서비스가 기록한 체크섬과 기준 SHA-1을 전부 비교 (DB 기록 확인)
     4. 다운로드 대조: 원본을 받아 SHA-1을 계산해 비교 (실제 파일 확인).
-       파일이 full_scan_below보다 적으면 전부, 많으면 3의 법칙으로 정한 개수만 무작위로 고른다
+       무작위 순서로 timeout까지 최대한 많이 받는다.
+       어디서 멈춰도 그때까지 본 파일이 무작위 샘플이다.
+       - 전부 봄                                  → "전부 확인"
+       - 3의 법칙이 요구하는 수 이상 봄 (1%면 299) → "손상 1% 미만 (95% 신뢰도)"
+       - 그보다 적게 보고 시간이 끝남             → error (timeout을 늘리거나 목표를 낮추라고 안내)
+       하나라도 다르면 fail이고 비율은 추정하지 않는다
 
 서비스 고유의 API 경로와 응답 필드 이름은 이 파일에 쓰지 않는다. 워크플로가 step.json으로 알려 준다.
 
@@ -17,10 +22,10 @@ step.json 키:
                      {method, body, id, encoding, page, next} 선택 (아래 _ASSET_DEFAULTS)
     download         (필수) 원본 다운로드 경로. {id}가 파일 id로 바뀐다
     albums           앨범 목록. {path, name, count}
-    max_defect_rate  샘플링으로 잡고 싶은 손상 비율. 기본 0.01 (1%)
+    max_defect_rate  다 못 볼 때 최소한 잡고 싶은 손상 비율. 기본 0.01 (1%)
     confidence       신뢰도. 기본 0.95
-    full_scan_below  파일이 이보다 적으면 전부 다운로드. 기본 300
-    seed             샘플링 시드. 없으면 무작위로 정하고 evidence에 남긴다
+    seed             다운로드 순서를 정하는 시드. 없으면 무작위로 정하고 evidence에 남긴다
+    timeout          단계 공통 키. 다운로드는 이 시간 안에서 최대한 많이 한다
 
 refs.json 키: assets[{filename, sha1}], albums[{name, asset_count}]
 
@@ -29,7 +34,7 @@ refs.json 키: assets[{filename, sha1}], albums[{name, asset_count}]
     로그인 거부, 파일 빠짐, 체크섬·다운로드 해시 다름, 앨범 파일 줄어듦,
     서비스가 응답하지 않거나 오류 응답                → fail
     설정 오류, 응답에 설정한 필드가 없음, 예외,
-    불일치 없이 timeout 안에 다 확인하지 못함         → error
+    불일치 없이 3의 법칙이 요구하는 수만큼 못 봄     → error
 
 기준보다 파일이 많은 것은 실패가 아니다 (백업이 기준 데이터보다 나중일 수 있다). 개수만 남긴다.
 """
@@ -49,7 +54,7 @@ from wetrun.contract import Status
 from wetrun.steps._common import deadline, load_refs, run
 
 REQUIRED_KEYS = {"url", "account", "login", "assets", "download"}
-OPTIONAL_KEYS = {"albums", "max_defect_rate", "confidence", "full_scan_below", "seed"}
+OPTIONAL_KEYS = {"albums", "max_defect_rate", "confidence", "seed"}
 
 _ASSET_DEFAULTS = {
     "method": None,  # body가 있으면 POST, 없으면 GET
@@ -92,11 +97,9 @@ def upper_bound(n: int, confidence: float = 0.95) -> float:
     return 1 - (1 - confidence) ** (1 / n)
 
 
-def choose(items: list, full_scan_below: int, n_sample: int, seed: int) -> tuple[list, str]:
-    """다운로드할 대상과 방식(full 또는 sample)을 고른다. 같은 시드면 같은 대상이다."""
-    if len(items) < full_scan_below or len(items) <= n_sample:
-        return items, "full"
-    return random.Random(seed).sample(items, n_sample), "sample"
+def shuffled(items: list, seed: int) -> list:
+    """다운로드할 순서. 같은 시드면 같은 순서다."""
+    return random.Random(seed).sample(items, len(items))
 
 
 # ---- 검사 ----
@@ -159,21 +162,10 @@ def _verify(cfg: dict, ref_files: list, ref_albums: list, end: float) -> tuple[S
             ((r, by_sha1[r["sha1"].lower()]) for r in ref_files if r["sha1"].lower() in by_sha1),
             key=lambda pair: pair[0]["filename"],
         )
-        n_sample = sample_size(cfg["max_defect_rate"], cfg["confidence"])
-        targets, mode = choose(matched, cfg["full_scan_below"], n_sample, cfg["seed"])
-        download = {"mode": mode, "checked": 0, "of": len(matched)}
-        if mode == "sample":
-            download["seed"] = cfg["seed"]
+        download = _download(api, cfg, matched)
         evidence["download"] = download
-        bad = []
-        for ref, item in targets:
-            actual = api.sha1(cfg["download"].replace("{id}", str(item["id"])))
-            download["checked"] += 1
-            if actual != ref["sha1"].lower():
-                bad.append(ref["filename"])
-        if bad:
-            download["mismatch"] = bad[:MAX_LISTED]
-            problems.append(f"다운로드한 원본이 다른 파일 {len(bad)}개")
+        if download.get("mismatch"):
+            problems.append(f"다운로드한 원본이 다른 파일 {len(download['mismatch'])}개")
 
     except ServiceError as err:
         problems.append(str(err))
@@ -185,18 +177,45 @@ def _verify(cfg: dict, ref_files: list, ref_albums: list, end: float) -> tuple[S
 
     if problems:
         return Status.FAIL, ", ".join(problems), evidence
-    return Status.PASS, _pass_message(download, cfg), evidence
-
-
-def _pass_message(download: dict, cfg: dict) -> str:
-    n = download["checked"]
-    if download["mode"] == "full":
-        return f"파일 {n}개 전부 확인, 모두 원본과 일치"
-    bound = upper_bound(n, cfg["confidence"])
+    n, total, needed = download["checked"], download["of"], download["needed"]
+    if n == total:
+        return Status.PASS, f"파일 {n}개 전부 확인, 모두 원본과 일치", evidence
+    rate, confidence = cfg["max_defect_rate"], cfg["confidence"]
+    if n >= needed:
+        return (
+            Status.PASS,
+            f"원본 {total}개 중 {n}개를 무작위로 확인, 모두 일치. 손상 파일은 "
+            f"{download['bound']:.1%} 미만 ({confidence:.0%} 신뢰도, 시드 {download['seed']})",
+            evidence,
+        )
     return (
-        f"원본 {n}개를 무작위로 확인, 모두 일치. 손상 파일은 {bound:.1%} 미만 "
-        f"({cfg['confidence']:.0%} 신뢰도, 시드 {download['seed']})"
+        Status.ERROR,
+        f"timeout 안에 원본 {n}개만 확인 (모두 일치). 손상 {rate:.1%}를 잡으려면 {needed}개가 "
+        f"필요함. timeout을 늘리거나 max_defect_rate를 키우세요",
+        evidence,
     )
+
+
+def _download(api: "_Api", cfg: dict, matched: list) -> dict:
+    """무작위 순서로 마감까지 받아 본다. 다른 파일이 있거나 시간이 끝나면 멈춘다."""
+    needed = sample_size(cfg["max_defect_rate"], cfg["confidence"])
+    result = {"checked": 0, "of": len(matched), "needed": min(needed, len(matched))}
+    bad = []
+    for ref, item in shuffled(matched, cfg["seed"]):
+        try:
+            actual = api.sha1(cfg["download"].replace("{id}", str(item["id"])))
+        except OutOfTime:
+            break
+        result["checked"] += 1
+        if actual != ref["sha1"].lower():
+            bad.append(ref["filename"])
+    if bad:
+        result["mismatch"] = bad[:MAX_LISTED]
+    if result["checked"] < len(matched):
+        result["seed"] = cfg["seed"]
+        if result["checked"]:
+            result["bound"] = round(upper_bound(result["checked"], cfg["confidence"]), 4)
+    return result
 
 
 def _list_assets(api: "_Api", spec: dict) -> list[dict]:
@@ -275,11 +294,8 @@ def _config(step: dict) -> dict:
 
     rate = step.get("max_defect_rate", 0.01)
     confidence = step.get("confidence", 0.95)
-    full_scan_below = step.get("full_scan_below", 300)
     if not (_number(rate) and 0 < rate < 1 and _number(confidence) and 0 < confidence < 1):
         raise ConfigError("max_defect_rate와 confidence는 0과 1 사이")
-    if not (isinstance(full_scan_below, int) and full_scan_below >= 0):
-        raise ConfigError("full_scan_below는 0 이상의 정수")
     seed = step.get("seed")
     if seed is None:
         seed = random.SystemRandom().randrange(10**6)
@@ -295,7 +311,6 @@ def _config(step: dict) -> dict:
         "albums": albums,
         "max_defect_rate": rate,
         "confidence": confidence,
-        "full_scan_below": full_scan_below,
         "seed": seed,
     }
 
@@ -387,7 +402,15 @@ class _Api:
         with self._open("GET", path) as resp:
             status = resp.status if hasattr(resp, "status") else resp.code
             _expect_ok(status, "원본 다운로드")
-            while chunk := resp.read(CHUNK):
+            while True:
+                try:
+                    chunk = resp.read(CHUNK)
+                except OSError:  # 읽는 중 시간 초과·끊김
+                    if time.monotonic() >= self.end:
+                        raise OutOfTime from None
+                    raise ServiceError("원본 다운로드 중 끊김") from None
+                if not chunk:
+                    break
                 digest.update(chunk)
                 if time.monotonic() > self.end:
                     raise OutOfTime
