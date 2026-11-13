@@ -37,6 +37,9 @@ class RunResult:
 # 검사 컨테이너 종료 코드 → 단계 상태. 그 외 코드·result.json 없음·시간 초과는 ERROR
 CHECK_EXIT_STATUS = {0: Status.PASS, 1: Status.FAIL}
 
+# 검사는 timeout 안에 끝내고, 실행기는 timeout + 이 값에 끊는다 (컨테이너 기동·결과 쓰기 여유)
+CHECK_TIMEOUT_GRACE_S = 30
+
 # CLI 종료 코드
 EXIT_PASS, EXIT_FAIL, EXIT_ERROR, EXIT_CLEANUP = 0, 1, 2, 3
 
