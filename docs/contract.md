@@ -69,7 +69,7 @@ compose:
 refs: refs.json
 steps:
   - {use: restore}                                    # 스냅샷 복원
-  - {use: up, services: [database]}                   # DB만 먼저 기동
+  - {use: up, name: up-db, services: [database]}      # DB만 먼저 기동 (up이 두 번이라 name 필요)
   - use: exec                                         # 서비스 컨테이너 안에서 명령 실행
     service: database
     command: [psql, -U, postgres, -d, immich]
