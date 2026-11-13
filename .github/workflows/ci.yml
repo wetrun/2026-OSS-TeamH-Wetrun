@@ -10,6 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # 통합 시험(tests/integration)용. 없으면 restic 시험이 건너뛰어진다. 온보딩과 같은 버전
+      - name: restic 0.18.0 설치
+        run: |
+          curl -fsSLo restic.bz2 https://github.com/restic/restic/releases/download/v0.18.0/restic_0.18.0_linux_amd64.bz2
+          echo "98f6dd8bf5b59058d04bfd8dab58e196cc2a680666ccee90275a3b722374438e  restic.bz2" | sha256sum -c -
+          bunzip2 restic.bz2 && sudo install -m 755 restic /usr/local/bin/restic && rm restic
+          restic version
       - uses: astral-sh/setup-uv@v6
       - run: uv sync
       - run: uv run ruff format --check .
