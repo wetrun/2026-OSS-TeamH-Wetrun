@@ -63,7 +63,6 @@ testenv 백업으로 끝까지 돌렸다. macOS + Colima, Immich v3.3.5, restic 
 - **확인하지 못한 것**
   - Linux에서 직접 실행 (지금까지 macOS + Colima에서만 시험)
   - root 소유 파일 복원
-  - restic 0.18의 종료 코드
   - 오래된 Compose에 `--wait-timeout`이 있는지
 - **중복 실행 방지가 없다.** 실행마다 프로젝트 이름이 달라 겹쳐도 안전하다. 예약 실행을 만들 때 추가한다.
 - **오프라인:** `alpine:3`(Docker 확인·정리용)과 `python:3.12-slim`(검사용)을 미리 받아 둬야 한다.
