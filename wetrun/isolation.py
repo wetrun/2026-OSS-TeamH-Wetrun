@@ -102,11 +102,15 @@ def sanitize(config: dict, project: str) -> dict:
 
 
 def prepare(
-    compose_files: list[Path], run_dir: Path, project: str, env_file: Path | None = None
+    compose_files: list[Path],
+    run_dir: Path,
+    project: str,
+    env_file: Path | None = None,
+    env: dict[str, str] | None = None,
 ) -> Path:
     """원본 compose를 검사·변환해 `<run_dir>/compose.wetrun.json`으로 쓴다.
 
-    상대 경로는 run_dir 기준으로 풀린다.
+    상대 경로는 run_dir 기준으로 풀린다. `env`는 보간 변수로, env_file보다 우선한다.
     결과 파일에는 보간된 비밀 값이 들어갈 수 있어 0600으로 쓴다.
     """
     args = ["compose", "-p", project, "--project-directory", str(run_dir)]
@@ -114,7 +118,7 @@ def prepare(
         args += ["-f", str(f)]
     if env_file:
         args += ["--env-file", str(env_file)]
-    r = _docker(*args, "config", "--format", "json")
+    r = _docker(*args, "config", "--format", "json", env={**os.environ, **(env or {})})
     if r.returncode:
         raise IsolationError(f"compose 설정을 해석하지 못함: {r.stderr.strip()}")
     config = json.loads(r.stdout)
@@ -176,6 +180,27 @@ def resources(project: str) -> dict[str, list[str]]:
     return found
 
 
+def ensure_visible(run_dir: Path) -> None:
+    """Docker가 실행 디렉터리를 실제로 보는지 확인한다.
+
+    Docker가 VM 안에서 도는 환경(Colima, Docker Desktop)은 공유하지 않은 호스트 경로를
+    마운트하면 오류 없이 빈 폴더를 넣는다. 그러면 복원한 데이터가 서비스에 보이지 않아
+    정상 백업이 fail로 잘못 판정된다.
+    """
+    marker = run_dir / ".wetrun-visible"
+    marker.write_text(run_dir.name)
+    r = _docker(
+        "run", "--rm", "--network", "none", "--label", f"{RUN_LABEL}={run_dir.name}",
+        "-v", f"{run_dir.resolve()}:/d:ro", CLEANUP_IMAGE, "cat", "/d/.wetrun-visible",
+    )  # fmt: skip
+    marker.unlink()
+    if r.returncode or r.stdout.strip() != run_dir.name:
+        raise IsolationError(
+            f"Docker가 실행 디렉터리를 볼 수 없음: {run_dir}. "
+            "Docker와 공유된 경로를 WETRUN_WORKDIR로 지정해야 함"
+        )
+
+
 def ensure_unused(project: str) -> None:
     if any(resources(project).values()):
         raise IsolationError(f"프로젝트 {project}의 자원이 이미 있음. 다른 실행과 겹침")
@@ -233,5 +258,5 @@ def _remove_run_dir(run_dir: Path, project: str) -> list[str]:
         return [f"실행 디렉터리 삭제 실패: {run_dir}: {detail}"]
 
 
-def _docker(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, check=False)
+def _docker(*args: str, env: dict | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["docker", *args], capture_output=True, text=True, check=False, env=env)

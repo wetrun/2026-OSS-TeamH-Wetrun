@@ -36,7 +36,7 @@ RUNNER_STEPS = {
 SCRIPT_STEP = {"script": ({"image", "command"}, set())}
 # 복원 후에야 생기는 경로. check-input에서는 존재를 확인하지 않는다
 RUN_PLACEHOLDERS = ("{restore}", "{run}")
-_RESTIC_URL = re.compile(r"^[a-z0-9]+:")  # s3:, sftp:, rest: 등
+RESTIC_URL = re.compile(r"^[a-z0-9]+:")  # s3:, sftp:, rest: 등
 
 
 class WorkflowError(Exception):
@@ -78,7 +78,7 @@ def load(path: Path) -> dict:
             problems.append(f"{section}: 매핑이어야 함")
 
     repo = (wf.get("repository") or {}).get("path")
-    if isinstance(repo, str) and not _RESTIC_URL.match(repo):
+    if isinstance(repo, str) and not RESTIC_URL.match(repo):
         problems += _check_file("repository.path", base, repo)
     compose = wf.get("compose") if isinstance(wf.get("compose"), dict) else {}
     files = compose.get("files")

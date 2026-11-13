@@ -7,7 +7,7 @@ def test_help_runs():
     assert r.returncode == 0
 
 
-def test_unimplemented_command_fails():
+def test_run_with_bad_workflow_fails_before_starting():
     r = subprocess.run([sys.executable, "-m", "wetrun", "run", "x.yaml"], capture_output=True)
     assert r.returncode == 2
 
