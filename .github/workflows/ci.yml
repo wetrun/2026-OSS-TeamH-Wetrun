@@ -22,3 +22,6 @@ jobs:
       # 로컬 make lint와 같은 검사 (서비스 이름 금지 규칙 포함)
       - run: make lint
       - run: make test
+      # root로 실행하면 검사 컨테이너는 nobody로 돌고, 실행기가 검사 파일 소유자를 바꿔 줘야 한다
+      - name: root로 실행 (검사 파일 소유자 변경 경로)
+        run: sudo .venv/bin/python -m pytest -p no:cacheprovider tests/integration/test_runner_docker.py -k healthy
