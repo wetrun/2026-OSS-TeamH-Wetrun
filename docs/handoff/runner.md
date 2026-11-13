@@ -40,6 +40,8 @@ testenv 백업으로 끝까지 돌렸다. macOS + Colima, Immich v3.3.5, restic 
 
 ## 정한 것과 근거
 
+검토한 선택지와 고민 과정은 [design-decisions.md](../design-decisions.md).
+
 | 결정 | 근거 |
 |---|---|
 | 검사는 실행기와 같은 uid로 실행 | #11 코멘트 |
