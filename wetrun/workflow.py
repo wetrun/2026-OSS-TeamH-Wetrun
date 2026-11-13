@@ -23,7 +23,7 @@ TOP_KEYS = {
 SECTION_KEYS = {
     "repository": ({"path"}, {"password"}),
     "snapshot": ({"tag"}, {"select"}),
-    "compose": ({"files"}, {"env_file", "env"}),
+    "compose": ({"files"}, {"env_file", "env", "mem_limit"}),
 }  # 섹션 → (필수, 선택)
 COMMON_KEYS = {"use", "name", "timeout", "required"}
 DEFAULT_TIMEOUT = 300
@@ -86,6 +86,12 @@ def load(path: Path) -> dict:
         problems.append("compose.files: 비어 있지 않은 목록이어야 함")
     for f in files if isinstance(files, list) else []:
         problems += _check_file("compose.files", base, f)
+    mem = compose.get("mem_limit")
+    if "mem_limit" in compose and not (
+        isinstance(mem, str)
+        or (isinstance(mem, dict) and all(isinstance(v, str) for v in mem.values()))
+    ):
+        problems.append('compose.mem_limit: "2g" 같은 문자열이나 서비스별 매핑이어야 함')
     if "env_file" in compose:
         problems += _check_file("compose.env_file", base, compose["env_file"])
     if "refs" in wf:

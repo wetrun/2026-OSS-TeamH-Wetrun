@@ -126,3 +126,30 @@ def test_unshared_workdir_is_error_not_fail(tmp_path, monkeypatch):
     with pytest.raises(iso.IsolationError, match="볼 수 없음"):
         runner.run(wf)
     assert not list(tmp_path.glob("wetrun-*"))  # 실행 디렉터리도 정리됨
+
+
+HOG = """
+services:
+  hog:
+    image: python:3.12-slim
+    command: ["python", "-c", "b = bytearray(300 * 1024 * 1024); import time; time.sleep(60)"]
+"""
+
+
+def test_oom_is_error_not_fail(tmp_path, monkeypatch):
+    """메모리 상한을 넘겨 죽은 서비스는 백업 문제(fail)가 아니라 환경 문제(error)다."""
+    if "WETRUN_WORKDIR" not in os.environ:
+        if not docker_sees(tmp_path):
+            pytest.skip("Docker가 임시 폴더를 볼 수 없음. 공유된 경로를 WETRUN_WORKDIR로 지정")
+        monkeypatch.setattr(runner, "WORK_BASE", tmp_path / "work")
+    (tmp_path / "c.yml").write_text(HOG)
+    wf = tmp_path / "w.yaml"
+    wf.write_text(yaml.safe_dump({
+        "version": 1, "repository": {"path": "sftp:x"}, "snapshot": {"tag": "t"},
+        "compose": {"files": ["c.yml"], "mem_limit": {"hog": "64m"}},
+        "steps": [{"use": "up", "timeout": 60}],
+    }))  # fmt: skip
+    result = runner.run(wf)
+    step = result.steps[0]
+    assert step.status == Status.ERROR and "메모리" in step.message, step
+    assert not any(leftovers(result).values())

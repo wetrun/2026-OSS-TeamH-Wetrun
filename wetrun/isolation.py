@@ -30,6 +30,12 @@ CLEANUP_IMAGE = "alpine:3"
 # 읽기 전용이면 허용하는 호스트 파일. 시간대를 맞추려고 공식 compose에 흔히 있다
 READ_ONLY_HOST_FILES = {"/etc/localtime", "/etc/timezone"}
 
+# 서비스별 메모리 상한 기본값. 검증 서비스가 메모리를 다 쓰면 커널이 운영 서비스를 죽일 수 있어,
+# 넘치면 검증 컨테이너만 죽게 한다. 워크플로의 compose.mem_limit으로 바꾼다.
+# ponytail: 서비스마다 묶을 뿐 합계는 묶지 않는다. 합계가 넘치면 여전히 전역 OOM이 날 수 있다.
+# 실행 이력의 최대 사용량으로 시작 전 여유를 확인하는 방식으로 보완한다.
+DEFAULT_MEM_LIMIT = "2g"
+
 _PROJECT_RE = re.compile(r"^wetrun-[a-z0-9][a-z0-9-]*$")
 
 
@@ -92,11 +98,22 @@ def violations(config: dict, run_dir: Path) -> list[str]:
     return found
 
 
-def sanitize(config: dict, project: str) -> dict:
-    """운영과 겹칠 수 있는 설정을 지우고 네트워크를 internal로 바꾼 사본을 돌려준다."""
+def sanitize(config: dict, project: str, mem_limit: str | dict | None = None) -> dict:
+    """운영과 겹칠 수 있는 설정을 지우고 네트워크를 internal로 바꾼 사본을 돌려준다.
+
+    메모리 상한: `mem_limit`이 문자열이면 모든 서비스, 매핑이면 서비스별로 쓴다. 지정하지 않은
+    서비스는 compose에 이미 있는 상한을 두고, 없으면 DEFAULT_MEM_LIMIT를 붙인다.
+    """
     c = json.loads(json.dumps(config))
     c["name"] = project
-    for spec in (c.get("services") or {}).values():
+    per_service = mem_limit if isinstance(mem_limit, dict) else {}
+    default = mem_limit if isinstance(mem_limit, str) else None
+    for name, spec in (c.get("services") or {}).items():
+        limits = ((spec.get("deploy") or {}).get("resources") or {}).get("limits") or {}
+        if name in per_service or default:
+            spec["mem_limit"] = per_service.get(name, default)
+        elif not spec.get("mem_limit") and not limits.get("memory"):
+            spec["mem_limit"] = DEFAULT_MEM_LIMIT
         spec.pop("container_name", None)
         spec.pop("ports", None)
         spec["restart"] = "no"
@@ -112,6 +129,7 @@ def prepare(
     project: str,
     env_file: Path | None = None,
     env: dict[str, str] | None = None,
+    mem_limit: str | dict | None = None,
 ) -> Path:
     """원본 compose를 검사·변환해 `<run_dir>/compose.wetrun.json`으로 쓴다.
 
@@ -132,7 +150,7 @@ def prepare(
     out = run_dir / "compose.wetrun.json"
     fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
-        json.dump(sanitize(config, project), f, indent=2)
+        json.dump(sanitize(config, project, mem_limit), f, indent=2)
     return out
 
 

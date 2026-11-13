@@ -111,6 +111,7 @@ class _Run:
                     self.project,
                     env_file,
                     {k: str(v) for k, v in self.resolve(c.get("env", {})).items()},
+                    c.get("mem_limit"),
                 )
             except iso.IsolationError as e:
                 return Status.ERROR, "compose 설정을 쓸 수 없음", {"reason": str(e)}
@@ -221,6 +222,25 @@ class _Run:
             for c in rows
         ]  # fmt: skip
 
+    def oom_killed(self) -> list[str]:
+        """메모리 상한이나 메모리 부족으로 강제 종료된 이번 실행의 컨테이너."""
+        ids = []
+        for label in (iso.COMPOSE_LABEL, iso.RUN_LABEL):
+            r = subprocess.run(
+                ["docker", "ps", "-aq", "--filter", f"label={label}={self.project}"],
+                capture_output=True, text=True, check=False,
+            )  # fmt: skip
+            ids += r.stdout.split()
+        if not ids:
+            return []
+        r = subprocess.run(
+            ["docker", "inspect", "-f", "{{.Name}} {{.State.OOMKilled}}", *sorted(set(ids))],
+            capture_output=True, text=True, check=False,
+        )  # fmt: skip
+        return [
+            line.split()[0].lstrip("/") for line in r.stdout.splitlines() if line.endswith(" true")
+        ]
+
     def _record_images(self) -> None:
         r = self.compose("images", "--format", "json")
         try:
@@ -279,8 +299,20 @@ def run(path: Path) -> RunResult:
 
 def _dispatch(ctx: _Run, step: dict, index: int) -> tuple[Status, str, dict]:
     if step["use"] in workflow.RUNNER_STEPS:
-        return getattr(ctx, step["use"])(step)
-    return ctx.check(step, index)
+        status, message, evidence = getattr(ctx, step["use"])(step)
+    else:
+        status, message, evidence = ctx.check(step, index)
+    # 서비스가 메모리 부족으로 죽었다면 백업 문제가 아니라 환경 문제다 (#13)
+    if status == Status.FAIL and (oom := ctx.oom_killed()):
+        return (
+            Status.ERROR,
+            "메모리 부족으로 서비스가 종료됨",
+            {
+                "oom_killed": oom,
+                "original": {"message": message, "evidence": evidence},
+            },
+        )
+    return status, message, evidence
 
 
 def _check_result(code: int, result_file: Path, stderr: str) -> tuple[Status, str, dict]:

@@ -49,3 +49,19 @@ def test_check_user_matches_runner_but_never_root():
         assert check_user() == "1000:1000"
     with mock.patch("os.getuid", return_value=0):
         assert check_user() == "65534:65534"
+
+
+def test_sanitize_caps_memory_per_service():
+    config = {
+        "services": {
+            "a": {"image": "x"},
+            "b": {"image": "x", "mem_limit": "512m"},
+            "c": {"image": "x", "deploy": {"resources": {"limits": {"memory": "1g"}}}},
+        }
+    }
+    out = sanitize(config, "wetrun-x")["services"]
+    assert out["a"]["mem_limit"] == "2g"  # 기본 상한
+    assert out["b"]["mem_limit"] == "512m" and "mem_limit" not in out["c"]  # compose 값 유지
+    assert sanitize(config, "wetrun-x", "3g")["services"]["b"]["mem_limit"] == "3g"
+    per = sanitize(config, "wetrun-x", {"a": "1g"})["services"]
+    assert per["a"]["mem_limit"] == "1g" and per["b"]["mem_limit"] == "512m"
