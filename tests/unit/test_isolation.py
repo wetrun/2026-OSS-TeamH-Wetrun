@@ -12,7 +12,8 @@ def svc(**spec) -> dict:
 
 def test_clean_config_has_no_violations():
     bind = {"type": "bind", "source": str(RUN / "data"), "target": "/data"}
-    assert violations(svc(volumes=[bind]), RUN) == []
+    tz = {"type": "bind", "source": "/etc/localtime", "target": "/etc/localtime", "read_only": True}
+    assert violations(svc(volumes=[bind, tz]), RUN) == []
 
 
 def test_rejects_escape_routes():
@@ -25,6 +26,7 @@ def test_rejects_escape_routes():
         svc(userns_mode="host"),
         svc(volumes=[{"type": "bind", "source": "/var/run/docker.sock", "target": "/s"}]),
         svc(volumes=[{"type": "bind", "source": "/etc", "target": "/e"}]),
+        svc(volumes=[{"type": "bind", "source": "/etc/localtime", "target": "/t"}]),  # 쓰기 가능
         svc(volumes=[{"type": "bind", "source": str(RUN / "../other"), "target": "/o"}]),
         {**svc(), "volumes": {"v": {"external": True}}},
         {**svc(), "secrets": {"s": {"file": "/etc/shadow"}}},

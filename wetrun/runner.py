@@ -98,12 +98,18 @@ class _Run:
     def up(self, step: dict) -> tuple[Status, str, dict]:
         if self.compose_file is None:
             c = self.wf["compose"]
+            env_file = None
+            if "env_file" in c:
+                # compose의 `env_file: .env` 같은 상대 경로는 실행 디렉터리 기준으로 풀리므로
+                # 같은 이름으로 복사해 둔다. 비밀 값이 있어 0600
+                env_file = self.run_dir / Path(c["env_file"]).name
+                _write_private_bytes(env_file, (self.base / c["env_file"]).read_bytes())
             try:
                 self.compose_file = iso.prepare(
                     [self.base / f for f in c["files"]],
                     self.run_dir,
                     self.project,
-                    self.base / c["env_file"] if "env_file" in c else None,
+                    env_file,
                     {k: str(v) for k, v in self.resolve(c.get("env", {})).items()},
                 )
             except iso.IsolationError as e:
@@ -342,6 +348,12 @@ def _write_private(path: Path, data) -> None:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
+
+
+def _write_private_bytes(path: Path, data: bytes) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
 
 
 def _tail(text: str) -> list[str]:
