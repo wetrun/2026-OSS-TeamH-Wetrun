@@ -45,10 +45,9 @@ def load_refs() -> dict:
 
 
 def deadline(step: dict) -> float:
-    """검사가 스스로 멈출 시각 (time.monotonic 기준).시작부터 timeout초 뒤.
+    """검사가 스스로 멈출 시각 (time.monotonic 기준). 시작부터 timeout초 뒤.
 
     실행기는 timeout + 30초에 끊으므로, 마감에 멈춰도 결과를 쓸 여유가 있다.
-
     time.time()은 컴퓨터 시계를 맞추면 앞뒤로 튈 수 있다. monotonic은 앞으로만 간다.
     """
     timeout = float(step.get("timeout", DEFAULT_TIMEOUT_S))
