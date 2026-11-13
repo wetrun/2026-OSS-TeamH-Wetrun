@@ -80,6 +80,7 @@ def test_rejects_bad_input(wf):
         "실행기 단계는 false": lambda d: d["steps"][0].update(required=False),
         "지원하지 않는 버전": lambda d: d.update(version=2),
         "steps: 비어 있지 않은": lambda d: d.update(steps=[]),
+        "compose.mem_limit": lambda d: d["compose"].update(mem_limit=512),
     }
     for expected, edit in cases.items():
         assert expected in problems(wf, edit), expected

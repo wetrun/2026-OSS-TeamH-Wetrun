@@ -1,10 +1,14 @@
 """wetrun CLI 진입점."""
 
 import argparse
+import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
-from wetrun.contract import EXIT_ERROR, EXIT_PASS
+from wetrun import runner
+from wetrun.contract import EXIT_ERROR, EXIT_PASS, exit_code
+from wetrun.isolation import IsolationError
 from wetrun.workflow import WorkflowError, load
 
 COMMANDS = {
@@ -24,6 +28,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "check-input":
         return check_input(Path(args.workflow))
+    if args.command == "run":
+        return run(Path(args.workflow))
     print(f"wetrun {args.command}: 아직 구현되지 않음", file=sys.stderr)
     return 2
 
@@ -38,6 +44,19 @@ def check_input(path: Path) -> int:
         return EXIT_ERROR
     print(f"wetrun check-input: {path}: 통과")
     return EXIT_PASS
+
+
+def run(path: Path) -> int:
+    try:
+        result = runner.run(path)
+    except WorkflowError:
+        return check_input(path)
+    except IsolationError as e:
+        print(f"wetrun run: {e}", file=sys.stderr)
+        return EXIT_ERROR
+    # ponytail: report.py(검사·출력 담당)가 생기기 전까지 RunResult를 JSON 그대로 출력한다
+    print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    return exit_code(result)
 
 
 if __name__ == "__main__":
