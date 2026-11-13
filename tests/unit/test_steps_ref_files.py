@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
@@ -10,7 +11,7 @@ import pytest
 from wetrun.contract import Status
 from wetrun.steps import ref_files
 from wetrun.steps._common import run
-from wetrun.steps.ref_files import choose, sample_size, upper_bound
+from wetrun.steps.ref_files import sample_size, shuffled, upper_bound
 
 PHOTOS = {"a.png": b"aaa", "b.png": b"bbb", "c.png": b"ccc"}
 PASSWORD = "pw-secret"
@@ -33,6 +34,7 @@ class FakeService:
         self.album_count = 2
         self.login_status = 200
         self.downloads: list[str] = []
+        self.delay = 0.0  # 다운로드 한 번에 걸리는 시간 (느린 서비스 흉내)
 
         service = self
 
@@ -81,10 +83,12 @@ class FakeService:
                 if self.path.startswith("/files/"):
                     name = self.path.split("/")[2]
                     service.downloads.append(name)
+                    time.sleep(service.delay)
                     return self.reply(200, raw=service.files[name])
                 self.reply(404, {})
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server.handle_error = lambda request, address: None  # 검사가 먼저 끊은 연결
         self.url = f"http://127.0.0.1:{self.server.server_port}"
         threading.Thread(target=self.server.serve_forever, args=(0.05,), daemon=True).start()
 
@@ -143,7 +147,7 @@ def test_pass_when_everything_matches(service, io):
     status, message, evidence = ref_files.check(step(service))
     assert status is Status.PASS, message
     assert evidence["found"] == 3  # 쪽을 넘겨 끝까지 받음
-    assert evidence["download"] == {"mode": "full", "checked": 3, "of": 3}
+    assert evidence["download"] == {"checked": 3, "of": 3, "needed": 3}
     assert "전부" in message
 
 
@@ -232,7 +236,18 @@ def test_secrets_never_in_result(service, io):
     assert TOKEN not in result
 
 
-# --- 샘플링 (3의 법칙) ---
+# --- 다운로드: 시간 안에서 최대한 (3의 법칙) ---
+
+
+def add_files(service, io, n):
+    """서비스와 refs.json에 파일 n개를 더한다."""
+    refs = json.loads((io / "refs.json").read_text())
+    for i in range(n):
+        name, data = f"x{i:03}.png", f"data-{i}".encode()
+        service.files[name] = data
+        service.recorded[name] = sha1(data)
+        refs["assets"].append({"filename": name, "sha1": sha1(data)})
+    (io / "refs.json").write_text(json.dumps(refs))
 
 
 def test_sample_size_rule_of_three():
@@ -241,24 +256,39 @@ def test_sample_size_rule_of_three():
     assert upper_bound(299) < 0.01
 
 
-def test_small_library_is_checked_in_full():
-    items = list(range(5))
-    assert choose(items, full_scan_below=300, n_sample=299, seed=1) == (items, "full")
+def test_same_seed_same_order():
+    items = list(range(100))
+    assert shuffled(items, 42) == shuffled(items, 42)
+    assert sorted(shuffled(items, 42)) == items
 
 
-def test_large_library_is_sampled_with_seed():
-    items = list(range(1000))
-    first, mode = choose(items, full_scan_below=300, n_sample=299, seed=42)
-    again, _ = choose(items, full_scan_below=300, n_sample=299, seed=42)
-    assert mode == "sample"
-    assert len(first) == 299
-    assert first == again  # 같은 시드면 같은 샘플
-
-
-def test_sampling_downloads_only_sample(service, io):
-    s = step(service, full_scan_below=2, max_defect_rate=0.8, seed=7)
+def test_enough_files_in_time_is_pass(service, io):
+    add_files(service, io, 20)
+    service.delay = 0.15
+    # 0.8이면 2개만 봐도 됨. 1초 동안 23개를 다 볼 수는 없다
+    s = step(service, max_defect_rate=0.8, seed=7, timeout=1)
     status, message, evidence = ref_files.check(s)
-    assert status is Status.PASS
-    assert evidence["download"]["mode"] == "sample"
-    assert evidence["download"]["checked"] == len(service.downloads) == sample_size(0.8)
-    assert "시드 7" in message
+    download = evidence["download"]
+    assert status is Status.PASS, message
+    assert 2 <= download["checked"] < download["of"] == 23
+    assert download["seed"] == 7 and "시드 7" in message
+    assert "bound" in download
+
+
+def test_too_few_files_in_time_is_error(service, io):
+    add_files(service, io, 20)
+    service.delay = 0.15
+    status, message, evidence = ref_files.check(step(service, timeout=1))  # 1%면 23개 전부 필요
+    assert status is Status.ERROR
+    assert "timeout을 늘리거나" in message
+    assert evidence["download"]["checked"] < 23
+
+
+def test_mismatch_found_before_time_runs_out_is_fail(service, io):
+    add_files(service, io, 20)
+    for name in service.files:
+        service.files[name] = b"broken"
+    service.delay = 0.15
+    status, _, evidence = ref_files.check(step(service, timeout=1))
+    assert status is Status.FAIL
+    assert evidence["download"]["mismatch"]
