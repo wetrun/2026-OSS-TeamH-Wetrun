@@ -49,11 +49,15 @@ testenv 백업으로 끝까지 돌렸다. macOS + Colima, Immich v3.3.5, restic 
 | 검사 컨테이너: 소스를 `/opt/wetrun`에 읽기 전용 마운트, `python:3.12-slim`, compose `default` 네트워크 | #17 |
 | `env_file`은 실행 디렉터리에 같은 이름으로 복사 | #17, #13 코멘트 |
 | `/etc/localtime`·`/etc/timezone`은 읽기 전용일 때만 마운트 허용 | #17, #13 코멘트 |
+| 검증 서비스마다 메모리 상한, 메모리 부족은 `error` | #17, #13 코멘트 |
 | Docker가 실행 디렉터리를 못 보면 실행 전에 `error` | #17 |
 
 ## 알려진 한계
 
-- **메모리 부족:** 서비스가 OOM으로 죽어도 `up`이 `fail`로 기록된다. 백업 문제와 구별되지 않는다. OOM이면 `error`로 두자고 #13에 제안했다.
+- **메모리:** 검증 중에는 서비스 하나만큼 메모리가 더 필요하다.
+  - 서비스마다 상한(기본 `2g`, `compose.mem_limit`)이 있어, 넘치면 검증 컨테이너만 죽는다. 메모리 부족으로 실패한 단계는 `error`로 판정한다 (#17).
+  - 합계는 묶지 않으므로, 합계가 넘치면 여전히 전역 OOM이 날 수 있다.
+  - Immich는 ML을 띄우지 않으면 약 35% 줄어든다 (#13).
 - **확인하지 못한 것**
   - Linux에서 직접 실행 (지금까지 macOS + Colima에서만 시험)
   - root 소유 파일 복원
@@ -74,7 +78,7 @@ WETRUN_WORKDIR=~/.cache/wetrun-test uv run pytest tests/integration
 
 ## 다음 작업
 
-1. #13 합의 후 `contract.md` 4절에 실행기 단계 판정 규칙을 추가하고, OOM이면 `error`로 판정
+1. #13 합의 후 `contract.md` 4절에 실행기 단계 판정 규칙을 추가
 2. Linux에서 확인: root 실행, root 소유 파일 복원
 3. 예약 실행: cron/systemd, 중복 실행 방지(락), restic에 필요한 `$HOME`
 4. 실행 이력으로 timeout 자동 조정, "평소보다 느림" 경고. 리포트 저장 형식이 정해진 뒤 한다
