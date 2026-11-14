@@ -16,6 +16,7 @@
 | 리포트 저장·요약·알림 연결 | `__main__.py` | 완료 (#29) |
 | 예약 실행(crontab 줄 생성), 중복 실행 방지 | `schedule.py`, `__main__.py` | 완료 (#31) |
 | 실행 이력: 값 기록, 오래된 스냅샷·느림 경고, `restore`·`exec` 시간 제한 자동 조정, 시작 전 메모리 확인 | `runner.py`, `report.load_history` | 완료 (#37, #40, #41) |
+| 원격 저장소: `env:` 주소, 읽기 전용(`--no-lock`), 복원 전 확인 시간 제한, ssh 비대화식 | `restic.py`, `runner.py` | 완료 (#44). sftp로 시험 |
 
 ## 실행 방법
 

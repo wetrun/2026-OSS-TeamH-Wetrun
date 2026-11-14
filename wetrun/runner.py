@@ -83,11 +83,12 @@ class _Run:
 
     def restore(self, step: dict) -> tuple[Status, str, dict]:
         repo, snap = self.wf["repository"], self.wf["snapshot"]
-        location = repo["path"]
+        # env:로 쓴 주소(접속 정보가 든 클라우드 주소 등)도 실제 값으로 바꾼다
+        location = self.resolve(repo["path"])
         if not workflow.RESTIC_URL.match(location):
             location = str(self.base / location)
         password = self.resolve(repo["password"]) if "password" in repo else None
-        restic = Restic(location, password)
+        restic = Restic(location, password, repo.get("read_only", False), step["timeout"])
         try:
             found = restic.preflight(snap["tag"], snap.get("select", "latest"), self.run_dir)
             self.snapshot_id, self.snapshot_time = found["id"], found.get("time", "")

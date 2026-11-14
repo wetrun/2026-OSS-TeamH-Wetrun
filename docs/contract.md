@@ -58,8 +58,9 @@
 ```yaml
 version: 1
 repository:
-  path: /backup/restic-repo          # restic 저장소 (로컬 경로 또는 restic URL)
+  path: /backup/restic-repo          # restic 저장소 (로컬 경로, restic URL, 또는 env:<변수>)
   password: env:RESTIC_PASSWORD       # 비밀 값은 env:<변수>로만 참조한다
+  read_only: false                    # true면 잠금 파일을 쓰지 않는다 (읽기 전용 계정용)
 snapshot: {tag: immich, select: latest}
 compose:
   files: [docker-compose.yml]         # 백업 시점의 compose (워크플로 파일 기준 상대 경로)
@@ -86,6 +87,13 @@ steps:
     account: {email: teamh@wetrun.test, password: env:IMMICH_TEST_PASSWORD}
   - {use: script, name: custom, image: example/check:1, command: [/check.sh], required: false}
 ```
+
+### 원격 저장소
+
+- `repository.path`가 `sftp:`, `s3:`, `rest:`처럼 주소 형식이거나 `env:<변수>`이면 로컬 파일을 확인하지 않는다. 접속 정보가 들어간 주소는 `env:`로 써서 YAML에 남기지 않는다. `env:` 값은 결과에서 가려진다.
+- `repository.read_only: true`면 restic에 `--no-lock`을 붙인다. 검증 계정에 읽기 권한만 줘도 확인·복원이 된다.
+- 복원 전 확인(스냅샷 목록, 복원 크기)에도 `restore` 단계의 `timeout`을 적용한다. 원격 저장소가 응답하지 않으면 restic은 몇 분 넘게 재시도하기 때문이다. 넘으면 `error`이고 `timed_out`으로 기록한다. 끊을 때 restic이 띄운 ssh 같은 자식 프로세스도 같이 끊는다.
+- `sftp:` 저장소는 ssh를 비대화식(`BatchMode=yes`)으로 쓴다. 키가 없거나 호스트 키를 모르면 묻지 않고 바로 `error`로 끝난다.
 
 ### 경로와 compose 처리
 
