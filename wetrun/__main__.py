@@ -92,7 +92,8 @@ def _lock(path: Path):
 
 def _run(path: Path) -> int:
     try:
-        result = runner.run(path)
+        history = report.load_history(report_dir(), runner.workflow_id(path))
+        result = runner.run(path, history)
     except WorkflowError:
         return check_input(path)
     except IsolationError as e:

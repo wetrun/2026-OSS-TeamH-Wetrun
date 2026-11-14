@@ -86,6 +86,23 @@ def save(result: RunResult, directory: Path, secrets: Iterable[str] = ()) -> Pat
     return path
 
 
+def load_history(directory: Path, workflow_id: str, limit: int = 20) -> list[dict]:
+    """같은 워크플로의 리포트를 최근 순으로 최대 limit개 (계약 6절).
+
+    읽지 못하거나 형식이 다른 파일은 건너뛴다. 이력 때문에 실행이 실패하면 안 된다.
+    """
+    found = []
+    for path in Path(directory).glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict) and workflow_id and data.get("workflow_id") == workflow_id:
+            found.append(data)
+    found.sort(key=lambda d: str(d.get("started_at", "")), reverse=True)
+    return found[:limit]
+
+
 def one_line(text: str) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= MAX_MESSAGE else text[: MAX_MESSAGE - 1] + "…"

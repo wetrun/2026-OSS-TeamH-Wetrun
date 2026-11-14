@@ -15,6 +15,7 @@
 | 실행 본체 `wetrun run` | `runner.py` | 완료 (#17) |
 | 리포트 저장·요약·알림 연결 | `__main__.py` | 완료 (#29) |
 | 예약 실행(crontab 줄 생성), 중복 실행 방지 | `schedule.py`, `__main__.py` | 완료 (#31) |
+| 실행 이력: 값 기록, 오래된 스냅샷·느림 경고, `restore`·`exec` 시간 제한 자동 조정, 시작 전 메모리 확인 | `runner.py`, `report.load_history` | 완료 (#37, #40, #41) |
 
 ## 실행 방법
 
@@ -102,9 +103,6 @@ cron과 같은 빈 환경에서 `wetrun schedule`이 만든 줄로도 통과했�
 
 ## 다음 작업 (v0.1 이후)
 
-1. 실행 이력으로 timeout 자동 조정, "평소보다 느림" 경고, 시작 전 메모리 여유 확인 ([design-decisions.md](../design-decisions.md) 4·8절)
-   - 리포트에 워크플로를 구별할 값과 "시간 초과로 끊김" 표시가 필요하다 (계약 변경, 리포트 담당과 합의)
-   - 예약 실행으로 이력이 쌓인 뒤 계수를 정한다
-2. systemd timer (필요해지면)
+1. systemd timer (필요해지면)
 
 실행이 아예 돌지 않은 경우는 잡지 않기로 했다. 근거는 [design-decisions.md](../design-decisions.md) 12절.

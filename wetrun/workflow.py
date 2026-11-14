@@ -138,6 +138,9 @@ def _check_steps(steps: list, base: Path) -> list[str]:
         req, opt = known[use]
         problems += _check_keys(f"{where}.", step, req, req | opt | COMMON_KEYS)
 
+        if use in RUNNER_STEPS:
+            # 실행 이력으로 시간 제한을 정할 때, 사용자가 직접 쓴 값은 건드리지 않는다 (계약 6절)
+            step["_timeout_explicit"] = "timeout" in step
         step.setdefault("name", use)
         step.setdefault("timeout", DEFAULT_TIMEOUT)
         step.setdefault("required", True)
