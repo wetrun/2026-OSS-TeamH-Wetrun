@@ -63,57 +63,125 @@ def test_cleanup_error_always_notifies():
     assert notify.should_notify(result(Status.PASS, cleanup_errors=["남음"]), when=[])
 
 
-def test_message_has_next_action_and_cleanup_list():
-    text = notify.message(
-        result(Status.FAIL, cleanup_errors=[f"network n{i} 남음" for i in range(7)])
+def body(status, **kw):
+    cleanup = kw.pop("cleanup_errors", ())
+    return notify.payload(result(status, cleanup_errors=cleanup), **kw)
+
+
+def card(b):
+    return b["embeds"][0]
+
+
+def field(b, name):
+    return next(f["value"] for f in card(b)["fields"] if f["name"].startswith(name))
+
+
+def test_fail_card_reads_cause_then_todo():
+    b = body(Status.FAIL, title="svc", report_path="/data/runs/r1.json")
+    assert b["content"] == "❌ **FAIL · svc** — `photos` 단계"  # 푸시 미리보기에 보이는 줄
+    assert b["username"] == "Wetrun" and "flags" not in b  # 실패는 울린다
+    c = card(b)
+    assert c["color"] == notify.COLOR["fail"] and c["title"] == "백업에 문제가 있어요"
+    assert c["description"].index("> 체크섬이 다른 파일 1개") < c["description"].index("**할 일**")
+    assert c["timestamp"] == "2026-11-14T09:00:00+09:00"
+    assert field(b, "리포트") == "`/data/runs/r1.json`"
+    # 리포트 칸이 있으면 실행 ID는 경로에 있으니 맨 아래에서 뺀다
+    assert c["footer"]["text"] == f"{notify.socket.gethostname()} · 스냅샷 abcdef12 · 총 70.0초"
+
+
+def test_steps_box_lines_up():
+    box = field(body(Status.FAIL), "단계")
+    assert box.startswith("```\n") and box.endswith("\n```")
+    rows = box.split("\n")[1:-1]
+    assert rows == ["✅ restore    0.0초", "❌ photos     0.0초"]
+
+
+def test_error_card_says_not_a_backup_problem():
+    r = result(Status.ERROR)
+    r.steps.append(StepResult("ready", "http", Status.SKIPPED))
+    b = notify.payload(r)
+    assert card(b)["description"].startswith("백업이 망가졌다는 뜻은 아니에요.")
+    assert card(b)["color"] == notify.COLOR["error"]
+    assert "⏭️ ready    건너뜀" in field(b, "단계")
+
+
+def test_pass_is_silent_and_short():
+    b = body(Status.PASS, report_path="/data/runs/r1.json")
+    assert b["flags"] == notify.SUPPRESS_NOTIFICATIONS  # 채널엔 남고 푸시는 안 울림
+    assert b["content"].endswith("— 2단계 모두 통과")
+    assert not any(f["name"] == "리포트" for f in card(b)["fields"])
+    assert "실행 r1" in card(b)["footer"]["text"]
+
+
+def test_cleanup_error_rings_and_is_listed():
+    errs = [f"network n{i} 남음" for i in range(7)]
+    b = body(Status.PASS, cleanup_errors=errs)
+    assert "flags" not in b  # 정리 실패는 pass여도 울린다
+    assert b["content"].endswith("· 정리 실패")
+    listed = field(b, "정리 오류 7개")
+    assert "network n4 남음" in listed and "network n5 남음" not in listed
+    assert "그 밖에 2개" in listed
+
+
+def test_missing_snapshot_is_left_out():
+    r = result(Status.ERROR)
+    r.snapshot_id = ""
+    assert "스냅샷" not in card(notify.payload(r))["footer"]["text"]
+
+
+def test_report_path_under_home_is_shortened():
+    path = str(notify.Path.home() / ".local/share/wetrun/runs/r1.json")
+    assert (
+        field(body(Status.FAIL, report_path=path), "리포트")
+        == "`~/.local/share/wetrun/runs/r1.json`"
     )
-    assert "할 일: 남은 자원을 직접 지워야 함" in text
-    assert "할 일: 백업이나 복구한 데이터에 문제가 있음. photos 단계를 확인" in text
-    assert "network n4 남음" in text and "network n5 남음" not in text
-    assert "그 밖에 2개" in text
 
 
-def test_message_lists_problem_steps():
-    text = notify.message(result(Status.FAIL))
-    assert "FAIL" in text
-    assert "photos" in text and "체크섬" in text
-    assert "restore" not in text  # 통과한 단계는 빼고 짧게
-
-
-def test_message_fits_discord_limit():
+def test_backtick_in_step_name_keeps_box():
     r = result(Status.FAIL)
-    r.steps += [StepResult(f"s{i}", "http", Status.ERROR, message="x" * 190) for i in range(30)]
-    text = notify.message(r, report_path="runs/r1.json")
-    assert len(text) <= notify.DISCORD_LIMIT
-    assert text.startswith("⚠️ **Wetrun ERROR")  # 첫 줄 판정은 남는다 (error가 섞이면 error)
-    assert text.endswith("리포트: `runs/r1.json`")  # 어디서 볼지도 남는다
-    assert "나머지는 리포트에" in text
+    r.steps[0].name = "a```b"
+    box = field(notify.payload(r), "단계")
+    assert box.count("```") == 2
 
 
-def test_title_first_and_record_last():
-    text = notify.message(result(Status.FAIL), title="immich", report_path="/data/runs/r1.json")
-    lines = text.splitlines()
-    assert lines[0].startswith("❌ **Wetrun FAIL · immich**")  # 푸시 미리보기에 보이는 줄
-    assert lines[1].startswith("할 일:")
-    assert notify.socket.gethostname() in lines[-2] and "`r1`" in lines[-2]
-    assert lines[-1] == "리포트: `/data/runs/r1.json`"
+def test_card_fits_discord_limits():
+    r = result(Status.FAIL)
+    r.steps[1].message = "x" * 5000
+    r.steps += [
+        StepResult("s" * 60 + str(i), "http", Status.ERROR, message="y" * 500) for i in range(40)
+    ]
+    r.cleanup_errors = ["z" * 3000] * 9
+    b = notify.payload(r, title="t" * 3000, report_path="/r/" + "p" * 3000)
+    c = card(b)
+    assert len(b["content"]) <= 2000 and len(c["title"]) <= 256 and len(c["description"]) <= 4096
+    assert all(len(f["name"]) <= 256 and len(f["value"]) <= 1024 for f in c["fields"])
+    total = len(c["title"]) + len(c["description"]) + len(c["footer"]["text"])
+    total += sum(len(f["name"]) + len(f["value"]) for f in c["fields"])
+    assert total <= 6000
+
+
+def test_secrets_are_masked_in_card():
+    r = result(Status.FAIL)
+    r.steps[1].message = "pw=hunter2"
+    b = notify.payload(r, ["hunter2"])
+    assert "hunter2" not in json.dumps(b, ensure_ascii=False)
 
 
 def test_send_posts_message(webhook):
     url, received, _ = webhook
     ok, reason = notify.send(url, result(Status.FAIL), title="svc", allow_http=True)
     assert ok, reason
-    assert received[0]["content"].startswith("❌ **Wetrun FAIL · svc**")
-    assert "photos" in received[0]["content"]
+    assert received[0]["content"].startswith("❌ **FAIL · svc**")
+    assert received[0]["username"] == "Wetrun"
     assert received[0]["allowed_mentions"] == {"parse": []}  # @everyone 호출 막기
-    assert "secret-token" not in received[0]["content"]
+    assert "secret-token" not in json.dumps(received[0], ensure_ascii=False)
 
 
 def test_send_never_raises(monkeypatch):
     def broken(*args, **kwargs):
         raise RuntimeError("x")
 
-    monkeypatch.setattr(notify, "message", broken)
+    monkeypatch.setattr(notify, "payload", broken)
     ok, reason = notify.send("https://example.test/hook", result(Status.FAIL))
     assert not ok and "알림을 만들지 못함" in reason
 
