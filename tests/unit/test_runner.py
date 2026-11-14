@@ -1,4 +1,5 @@
 import json
+from datetime import UTC
 
 from wetrun.contract import Status, StepResult
 from wetrun.runner import _check_result, _mask
@@ -38,3 +39,35 @@ def test_mask_keeps_numbers_when_secret_is_digits():
     )
     _mask(r, {"5430"})
     assert r.evidence == {"bytes": 54305072} and r.message == "pw ***"
+
+
+def test_stale_snapshot_warning():
+    from datetime import datetime, timedelta
+
+    from wetrun.runner import stale_snapshot_warning
+
+    now = datetime(2026, 11, 14, tzinfo=UTC)
+    # restic처럼 소수점 아래 9자리
+    old = (now - timedelta(days=5)).isoformat().replace("+00:00", ".123456789+00:00")
+    fresh = (now - timedelta(days=1)).isoformat()
+    assert "5일 전" in stale_snapshot_warning(old, None, now)[0]  # 기본 3일
+    assert stale_snapshot_warning(old, 7, now) == []
+    assert stale_snapshot_warning(fresh, None, now) == []
+    assert stale_snapshot_warning("", None, now) == []  # 복원 전에 멈춘 실행
+
+
+def test_parse_bytes():
+    from wetrun.runner import parse_bytes
+
+    assert parse_bytes("760.2MiB ") == int(760.2 * 2**20)
+    assert parse_bytes("1.5GiB") == int(1.5 * 2**30)
+    assert parse_bytes("512kB") == 512_000
+    assert parse_bytes("--") is None
+
+
+def test_workflow_id_is_stable_per_path(tmp_path):
+    from wetrun.runner import workflow_id
+
+    a, b = tmp_path / "a.yaml", tmp_path / "b.yaml"
+    assert workflow_id(a) == workflow_id(tmp_path / "." / "a.yaml") != workflow_id(b)
+    assert len(workflow_id(a)) == 16

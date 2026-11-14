@@ -10,6 +10,7 @@ ponytail: 중복 실행 방지(락)는 없다. 실행마다 프로젝트 이름�
 import hashlib
 import json
 import os
+import re
 import signal
 import subprocess
 import time
@@ -41,7 +42,10 @@ class _Run:
         self.restore_dir = self.run_dir / "restore"
         self.compose_file: Path | None = None
         self.snapshot_id = ""
+        self.snapshot_time = ""
         self.images: dict[str, str] = {}
+        self.memory_peak: dict[str, int] = {}
+        self.timed_out = False  # 이번 단계를 시간 제한으로 끊었는지. _dispatch가 읽고 되돌린다
 
     # ---- 값 풀기 ----
 
@@ -85,9 +89,10 @@ class _Run:
         restic = Restic(location, password)
         try:
             found = restic.preflight(snap["tag"], snap.get("select", "latest"), self.run_dir)
-            self.snapshot_id = found["id"]
+            self.snapshot_id, self.snapshot_time = found["id"], found.get("time", "")
             restic.restore(found["id"], self.restore_dir, timeout=step["timeout"])
         except ResticError as e:
+            self.timed_out = e.timed_out
             return e.status, e.message, e.evidence
         return (
             Status.PASS,
@@ -122,10 +127,12 @@ class _Run:
             r = self.compose("up", "-d", "--wait", *services, timeout=step["timeout"])
             code, stderr = r.returncode, r.stderr
         except subprocess.TimeoutExpired as e:
+            self.timed_out = True
             code, stderr = None, e.stderr or ""
             stderr = stderr.decode(errors="replace") if isinstance(stderr, bytes) else stderr
         states = self._states()
         self._record_images()
+        self._record_memory()
         healthy = bool(states) and all(
             s["state"] == "running" and s["health"] in ("healthy", "") for s in states
         )
@@ -156,6 +163,7 @@ class _Run:
                 stdin=stdin, capture_output=True, timeout=step["timeout"], check=False,
             )  # fmt: skip
         except subprocess.TimeoutExpired:
+            self.timed_out = True
             return Status.ERROR, f"시간 초과 ({step['timeout']}초)", {}
         finally:
             if stdin:
@@ -204,12 +212,14 @@ class _Run:
                 check=False,
             )
         except subprocess.TimeoutExpired:
+            self.timed_out = True
             subprocess.run(["docker", "kill", name], capture_output=True, check=False)
             return (
                 Status.ERROR,
                 f"검사가 시간 안에 끝나지 않음 ({step['timeout']}+{CHECK_TIMEOUT_GRACE_S}초)",
                 {},
             )
+        self._record_memory()
         return _check_result(r.returncode, io / "out" / "result.json", r.stderr)
 
     # ---- 도움 ----
@@ -262,6 +272,27 @@ class _Run:
         except json.JSONDecodeError:
             pass  # 기록용. 실패해도 판정에는 영향 없음
 
+    def _record_memory(self) -> None:
+        """서비스별 메모리 사용량을 재서 최댓값을 남긴다 (계약 6절). 순간 최대치는 아니다."""
+        names = {}
+        try:
+            r = self.compose("ps", "--format", "{{.Name}}\t{{.Service}}", timeout=STATE_TIMEOUT_S)
+            names = dict(line.split("\t", 1) for line in r.stdout.splitlines() if "\t" in line)
+            if not names:
+                return
+            r = subprocess.run(
+                ["docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.MemUsage}}", *names],
+                capture_output=True, text=True, timeout=STATE_TIMEOUT_S, check=False,
+            )  # fmt: skip
+        except subprocess.TimeoutExpired:
+            return  # 기록용. 실패해도 판정에는 영향 없음
+        for line in r.stdout.splitlines():
+            name, _, usage = line.partition("\t")
+            used = parse_bytes(usage.split("/")[0])
+            service = names.get(name)
+            if service and used is not None:
+                self.memory_peak[service] = max(self.memory_peak.get(service, 0), used)
+
     def _network(self) -> str:
         names = json.loads(self.compose_file.read_text()).get("networks") or {"default": {}}
         return f"{self.project}_{'default' if 'default' in names else next(iter(names))}"
@@ -289,7 +320,9 @@ def run(path: Path) -> RunResult:
                 results.append(_result(step, Status.ERROR, "중단됨", {}, time.monotonic() - s0))
                 stopped = True
                 continue
-            results.append(_result(step, status, message, evidence, time.monotonic() - s0))
+            result = _result(step, status, message, evidence, time.monotonic() - s0)
+            result.timed_out = ctx.timed_out
+            results.append(result)
             stopped = step["required"] and status != Status.PASS
     finally:
         signal.signal(signal.SIGTERM, previous)
@@ -305,10 +338,56 @@ def run(path: Path) -> RunResult:
         steps=[_mask(r, found) for r in results],
         images=ctx.images,
         cleanup_errors=cleanup_errors,
+        workflow_id=workflow_id(path),
+        snapshot_time=ctx.snapshot_time,
+        memory_peak_bytes=ctx.memory_peak,
+        warnings=report.mask_text(
+            stale_snapshot_warning(ctx.snapshot_time, wf["snapshot"].get("max_age_days")),
+            sorted(found, key=len, reverse=True),
+        ),
     )
 
 
+def workflow_id(path: Path) -> str:
+    """같은 워크플로를 묶는 값 (계약 6절). 중복 실행 잠금 키로도 쓴다."""
+    return hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:16]
+
+
+DEFAULT_SNAPSHOT_MAX_AGE_DAYS = 3
+
+
+def stale_snapshot_warning(snapshot_time: str, max_age_days=None, now=None) -> list[str]:
+    """검사한 스냅샷이 너무 오래됐으면 경고 한 줄.
+
+    백업 작업이 멈추면 옛 스냅샷만 계속 검사하고 통과하기 때문이다.
+    """
+    if not snapshot_time:
+        return []
+    limit = max_age_days or DEFAULT_SNAPSHOT_MAX_AGE_DAYS
+    # restic은 소수점 아래 9자리까지 쓴다. 파이썬은 6자리까지 읽는다
+    taken = datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", snapshot_time))
+    age_days = ((now or datetime.now(taken.tzinfo)) - taken).total_seconds() / 86400
+    if age_days <= limit:
+        return []
+    return [
+        f"검사한 백업이 {age_days:.0f}일 전 것 (기준 {limit:g}일). 백업 작업이 돌고 있는지 확인"
+    ]
+
+
+_UNITS = {"B": 1, "KIB": 2**10, "MIB": 2**20, "GIB": 2**30, "TIB": 2**40,
+          "KB": 10**3, "MB": 10**6, "GB": 10**9, "TB": 10**12}  # fmt: skip
+
+
+def parse_bytes(text: str) -> int | None:
+    """`docker stats`의 `123.4MiB` 같은 값을 바이트로."""
+    m = re.match(r"^\s*([\d.]+)\s*([A-Za-z]+)\s*$", text)
+    if not m or m.group(2).upper() not in _UNITS:
+        return None
+    return int(float(m.group(1)) * _UNITS[m.group(2).upper()])
+
+
 def _dispatch(ctx: _Run, step: dict, index: int) -> tuple[Status, str, dict]:
+    ctx.timed_out = False
     if step["use"] in workflow.RUNNER_STEPS:
         status, message, evidence = getattr(ctx, step["use"])(step)
     else:
