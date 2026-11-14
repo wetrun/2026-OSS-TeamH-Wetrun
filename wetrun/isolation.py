@@ -16,6 +16,7 @@ import os
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -58,8 +59,24 @@ def make_run_dir(base: Path, project: str) -> Path:
     """실행 디렉터리 `<base>/<project>`를 만든다. 이미 있으면 다른 실행과 겹친 것이므로 실패."""
     run_dir = base / project
     base.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(base)
     run_dir.mkdir(mode=0o700)
     return run_dir
+
+
+def ensure_private_dir(path: Path) -> None:
+    """본인 소유이고, 링크가 아니고, 남이 쓸 수 없는 폴더인지 확인한다.
+
+    /tmp·/var/tmp처럼 여러 사람이 쓰는 곳에 다른 사용자가 같은 이름의 폴더나 링크를 먼저
+    만들어 두면, 비밀 값이 든 파일이 그 사람 손에 들어가거나 엉뚱한 파일이 덮어써진다.
+    """
+    st = os.lstat(path)
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+        raise IsolationError(f"폴더가 아니거나 링크임: {path}")
+    if st.st_uid != os.getuid():
+        raise IsolationError(f"다른 사용자 소유 폴더라 쓰지 않음: {path} (uid {st.st_uid})")
+    if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise IsolationError(f"남이 쓸 수 있는 폴더라 쓰지 않음: {path}. chmod go-w로 바꾼다")
 
 
 def violations(config: dict, run_dir: Path) -> list[str]:
@@ -70,6 +87,15 @@ def violations(config: dict, run_dir: Path) -> list[str]:
         for name, spec in (config.get(kind) or {}).items():
             if (spec or {}).get("external"):
                 found.append(f"{kind}.{name}: external은 운영 자원일 수 있어 허용하지 않음")
+    # 이름 있는 볼륨도 driver_opts(type: none, o: bind, device: <호스트 경로>)나
+    # 다른 드라이버(NFS 등)로 운영 경로·공유 저장소에 붙을 수 있다.
+    # 검증 볼륨은 기본 local 드라이버의 빈 볼륨만 쓴다
+    for name, spec in (config.get("volumes") or {}).items():
+        spec = spec or {}
+        if spec.get("driver_opts") or spec.get("driver", "local") != "local":
+            found.append(
+                f"volumes.{name}: driver·driver_opts는 운영 경로에 붙을 수 있어 허용하지 않음"
+            )
     # secrets·configs의 file은 bind 마운트와 같다
     for kind in ("secrets", "configs"):
         for name, spec in (config.get(kind) or {}).items():
@@ -81,6 +107,17 @@ def violations(config: dict, run_dir: Path) -> list[str]:
             found.append(f"services.{svc}: privileged 허용하지 않음")
         if spec.get("devices"):
             found.append(f"services.{svc}: devices 허용하지 않음")
+        # privileged와 같은 효과를 내거나 컨테이너 격리를 약하게 하는 설정
+        if spec.get("cap_add"):
+            found.append(f"services.{svc}: cap_add 허용하지 않음 ({', '.join(spec['cap_add'])})")
+        weak = [o for o in spec.get("security_opt") or [] if _weakens_security(o)]
+        if weak:
+            found.append(f"services.{svc}: 보안 장치를 끄는 security_opt ({', '.join(weak)})")
+        if spec.get("cgroup_parent"):
+            found.append(f"services.{svc}: cgroup_parent 허용하지 않음")
+        for src in spec.get("volumes_from") or []:
+            if str(src).startswith("container:"):
+                found.append(f"services.{svc}: 바깥 컨테이너의 volumes_from ({src})")
         for key in ("network_mode", "pid", "ipc", "uts", "userns_mode"):
             value = spec.get(key) or ""
             if value == "host" or value.startswith(("container:", "service:")):
@@ -96,6 +133,11 @@ def violations(config: dict, run_dir: Path) -> list[str]:
             elif not Path(source).resolve().is_relative_to(root):
                 found.append(f"services.{svc}: 실행 디렉터리 밖 bind 마운트 ({source})")
     return found
+
+
+def _weakens_security(option: str) -> bool:
+    o = option.replace("=", ":").lower()
+    return "unconfined" in o or o in ("label:disable", "no-new-privileges:false")
 
 
 def sanitize(config: dict, project: str, mem_limit: str | dict | None = None) -> dict:

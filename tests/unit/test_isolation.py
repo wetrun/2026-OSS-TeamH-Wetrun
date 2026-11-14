@@ -73,3 +73,43 @@ def test_sanitize_drops_nulls_old_compose_cannot_read_back():
     )
     app = out["services"]["app"]
     assert "command" not in app and "entrypoint" not in app and app["environment"] == {"B": "1"}
+
+
+def test_rejects_ways_around_privileged_and_bind_rules():
+    host_bind_volume = {
+        "driver": "local",
+        "driver_opts": {"type": "none", "o": "bind", "device": "/srv"},
+    }
+    bad = [
+        {**svc(), "volumes": {"v": host_bind_volume}},  # 이름 있는 볼륨으로 운영 경로에 붙기
+        {**svc(), "volumes": {"v": {"driver": "nfs"}}},
+        svc(cap_add=["SYS_ADMIN"]),
+        svc(security_opt=["seccomp=unconfined"]),
+        svc(security_opt=["apparmor:unconfined"]),
+        svc(security_opt=["label=disable"]),
+        svc(cgroup_parent="/"),
+        svc(volumes_from=["container:prod"]),
+    ]
+    for config in bad:
+        assert violations(config, RUN), config
+    ok = [{**svc(), "volumes": {"v": {}}}, svc(security_opt=["no-new-privileges:true"])]
+    for config in ok:
+        assert violations(config, RUN) == [], config
+
+
+def test_private_dir_check(tmp_path):
+    import pytest
+
+    from wetrun.isolation import IsolationError, ensure_private_dir
+
+    mine = tmp_path / "mine"
+    mine.mkdir(mode=0o700)
+    ensure_private_dir(mine)
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    shared.chmod(0o777)
+    link = tmp_path / "link"
+    link.symlink_to(mine)
+    for bad in (shared, link):
+        with pytest.raises(IsolationError):
+            ensure_private_dir(bad)
