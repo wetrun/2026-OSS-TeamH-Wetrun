@@ -60,7 +60,11 @@ def problems(wf, edit) -> str:
 
 def test_example_passes_and_fills_defaults(wf):
     steps = wf()["steps"]
-    assert steps[0] == {"use": "restore", "name": "restore", "timeout": 300, "required": True}
+    assert steps[0] == {
+        "use": "restore", "name": "restore", "timeout": 300, "required": True,
+        "_timeout_explicit": False,  # 이력으로 시간 제한을 정해도 되는지 (계약 6절)
+    }  # fmt: skip
+    assert steps[4]["timeout"] == 120 and "_timeout_explicit" not in steps[4]  # 검사 단계에는 없음
     assert steps[4]["timeout"] == 120 and steps[5]["required"] is False
 
 

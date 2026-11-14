@@ -34,8 +34,9 @@ NOBODY = 65534
 class _Run:
     """실행 하나의 상태. 단계 함수들이 공유한다."""
 
-    def __init__(self, wf: dict, path: Path):
+    def __init__(self, wf: dict, path: Path, history: list[dict] | None = None):
         self.wf, self.base = wf, path.parent
+        self.history = history or []  # 같은 워크플로의 지난 리포트, 최근 순 (계약 6절)
         self.run_id = iso.new_run_id()
         self.project = iso.project_name(self.run_id)
         self.run_dir = iso.make_run_dir(WORK_BASE, self.project)
@@ -121,6 +122,8 @@ class _Run:
             except iso.IsolationError as e:
                 return Status.ERROR, "compose 설정을 쓸 수 없음", {"reason": str(e)}
         services = step.get("services", [])
+        if shortfall := self._memory_shortfall(services):
+            return Status.ERROR, "메모리 부족 예상: 띄우지 않음", shortfall
         # 마감은 `--wait-timeout`(Compose 2.17 이상에만 있음) 대신 프로세스 시간 제한으로 건다.
         # 마감에 걸리면 컨테이너 상태로 판정한다
         try:
@@ -272,6 +275,37 @@ class _Run:
         except json.JSONDecodeError:
             pass  # 기록용. 실패해도 판정에는 영향 없음
 
+    def _memory_shortfall(self, services: list[str]) -> dict:
+        """지난 실행의 최대 메모리로 이번에 띄울 서비스의 필요량을 어림해 빈 메모리와 비교한다.
+
+        모자라면 근거를 돌려준다. 이력이 없거나 빈 메모리를 모르면 확인하지 않는다 (빈 dict).
+        """
+        peaks = memory_peaks(self.history)
+        if not peaks or self.compose_file is None:
+            return {}
+        defined = json.loads(self.compose_file.read_text()).get("services") or {}
+        running = {s["service"] for s in self._states() if s["state"] == "running"}
+        starting = [s for s in (services or defined) if s not in running]
+        need = int(sum(peaks.get(s, 0) for s in starting) * MEMORY_MARGIN)
+        available = self._memory_available()
+        if not need or available is None or need <= available:
+            return {}
+        return {"need_bytes": need, "available_bytes": available, "services": starting}
+
+    def _memory_available(self) -> int | None:
+        """Docker가 도는 곳(Linux, 또는 macOS의 VM)의 빈 메모리."""
+        try:
+            r = subprocess.run(
+                ["docker", "run", "--rm", "--network", "none",
+                 "--label", f"{iso.RUN_LABEL}={self.project}",
+                 iso.CLEANUP_IMAGE, "cat", "/proc/meminfo"],
+                capture_output=True, text=True, timeout=STATE_TIMEOUT_S, check=False,
+            )  # fmt: skip
+        except subprocess.TimeoutExpired:
+            return None
+        m = re.search(r"^MemAvailable:\s+(\d+) kB", r.stdout, re.M)
+        return int(m.group(1)) * 1024 if m else None
+
     def _record_memory(self) -> None:
         """서비스별 메모리 사용량을 재서 최댓값을 남긴다 (계약 6절). 순간 최대치는 아니다."""
         names = {}
@@ -298,11 +332,15 @@ class _Run:
         return f"{self.project}_{'default' if 'default' in names else next(iter(names))}"
 
 
-def run(path: Path) -> RunResult:
-    """워크플로를 실행한다. 입력 오류는 workflow.WorkflowError로 아무것도 띄우기 전에 알린다."""
+def run(path: Path, history: list[dict] | None = None) -> RunResult:
+    """워크플로를 실행한다. 입력 오류는 workflow.WorkflowError로 아무것도 띄우기 전에 알린다.
+
+    history: 같은 워크플로의 지난 리포트(최근 순). 시간 제한·경고·메모리 확인에 쓴다 (계약 6절).
+    """
     wf = workflow.load(path)
+    history = history or []
     started, t0 = datetime.now().astimezone().isoformat(timespec="seconds"), time.monotonic()
-    ctx = _Run(wf, path)
+    ctx = _Run(wf, path, history)
     results: list[StepResult] = []
     previous = signal.signal(signal.SIGTERM, _raise_interrupt)
     try:
@@ -314,8 +352,12 @@ def run(path: Path) -> RunResult:
                 results.append(_result(step, Status.SKIPPED, "앞 필수 단계가 통과하지 못함", {}, 0))
                 continue
             s0 = time.monotonic()
+            if (adjusted := adaptive_timeout(history, step)) is not None:
+                step = {**step, "timeout": adjusted}
             try:
                 status, message, evidence = _dispatch(ctx, step, i)
+                if adjusted is not None:
+                    evidence = {**evidence, "timeout_s": adjusted, "timeout_from": "history"}
             except KeyboardInterrupt:
                 results.append(_result(step, Status.ERROR, "중단됨", {}, time.monotonic() - s0))
                 stopped = True
@@ -342,7 +384,8 @@ def run(path: Path) -> RunResult:
         snapshot_time=ctx.snapshot_time,
         memory_peak_bytes=ctx.memory_peak,
         warnings=report.mask_text(
-            stale_snapshot_warning(ctx.snapshot_time, wf["snapshot"].get("max_age_days")),
+            stale_snapshot_warning(ctx.snapshot_time, wf["snapshot"].get("max_age_days"))
+            + slow_warnings(history, results),
             sorted(found, key=len, reverse=True),
         ),
     )
@@ -351,6 +394,79 @@ def run(path: Path) -> RunResult:
 def workflow_id(path: Path) -> str:
     """같은 워크플로를 묶는 값 (계약 6절). 중복 실행 잠금 키로도 쓴다."""
     return hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:16]
+
+
+# 실행 이력 (계약 6절)
+MIN_SAMPLES = 5  # 표본이 이보다 적으면 이력을 쓰지 않는다
+TIMEOUT_FLOOR_S = 60
+TIMEOUT_CEIL_S = 2 * workflow.DEFAULT_TIMEOUT
+ADAPTIVE_STEPS = {"restore", "exec"}  # 시간 제한이 판정 기준이 아니라 멈춤을 잡는 안전장치인 단계
+MEMORY_MARGIN = 1.2  # 메모리는 단계 끝에 잰 표본이라 순간 최대치보다 작을 수 있다
+
+
+def estimate(samples: list[float]) -> tuple[float, float]:
+    """RFC 6298 방식의 평균(Est)과 변동폭(Dev). samples는 오래된 것부터."""
+    est, dev = samples[0], samples[0] / 2
+    for r in samples[1:]:
+        dev = 0.75 * dev + 0.25 * abs(r - est)  # 갱신 전 Est로 계산
+        est = 0.875 * est + 0.125 * r
+    return est, dev
+
+
+def _step_runs(history: list[dict], name: str) -> list[dict]:
+    """지난 리포트에서 이 이름의 단계 결과, 최근 순."""
+    return [s for h in history for s in h.get("steps", []) if s.get("name") == name]
+
+
+def step_samples(history: list[dict], name: str) -> list[float]:
+    """pass이고 끊기지 않은 실행의 소요 시간, 오래된 것부터. 끊긴 실행은 뺀다 (Karn 규칙)."""
+    runs = [s for s in _step_runs(history, name) if s.get("status") == "pass"]
+    return [float(s["duration_s"]) for s in reversed(runs) if not s.get("timed_out")]
+
+
+def adaptive_timeout(history: list[dict], step: dict) -> int | None:
+    """이력으로 정한 시간 제한. 바꾸지 않으면 None.
+
+    restore·exec 중 사용자가 timeout을 직접 쓰지 않은 단계만. 직전 실행이 끊겼으면 2배.
+    """
+    if step["use"] not in ADAPTIVE_STEPS or step.get("_timeout_explicit", True):
+        return None
+    runs = _step_runs(history, step["name"])
+    samples = step_samples(history, step["name"])
+    backoff = bool(runs) and bool(runs[0].get("timed_out"))
+    if len(samples) >= MIN_SAMPLES:
+        est, dev = estimate(samples)
+        base = est + 4 * dev
+    elif backoff:
+        base = step["timeout"]
+    else:
+        return None
+    if backoff:
+        base *= 2
+    return int(min(max(base, TIMEOUT_FLOOR_S), TIMEOUT_CEIL_S))
+
+
+def slow_warnings(history: list[dict], results: list[StepResult]) -> list[str]:
+    """평소(Est + 4·Dev)보다 오래 걸린 단계. 판정은 바꾸지 않는다."""
+    found = []
+    for r in results:
+        samples = step_samples(history, r.name)
+        if r.status != Status.PASS or len(samples) < MIN_SAMPLES:
+            continue
+        est, dev = estimate(samples)
+        if r.duration_s > est + 4 * dev:
+            found.append(f"{r.name} 단계가 평소보다 느림 ({r.duration_s:.0f}초, 평소 {est:.0f}초)")
+    return found
+
+
+def memory_peaks(history: list[dict]) -> dict[str, int]:
+    """지난 실행에서 관측한 서비스별 최대 메모리."""
+    peaks: dict[str, int] = {}
+    for h in history:
+        for service, used in (h.get("memory_peak_bytes") or {}).items():
+            if isinstance(used, int):
+                peaks[service] = max(peaks.get(service, 0), used)
+    return peaks
 
 
 DEFAULT_SNAPSHOT_MAX_AGE_DAYS = 3

@@ -38,7 +38,7 @@ def _fake_run(monkeypatch, tmp_path, workflow_text: str):
         "r1", "abcdef12", "0" * 64, "t", 1.0,
         [StepResult("restore", "restore", Status.FAIL, message="pw=topsecret")],
     )  # fmt: skip
-    monkeypatch.setattr(runner, "run", lambda p: result)
+    monkeypatch.setattr(runner, "run", lambda p, history=None: result)
     # 파일 존재 확인 없이 읽기만 한다 (실제 load는 test_workflow.py가 시험)
     monkeypatch.setattr(cli, "load", lambda p: yaml.safe_load(p.read_text()))
     sent = {}

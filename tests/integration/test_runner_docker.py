@@ -189,3 +189,27 @@ def test_service_not_healthy_by_deadline_is_fail(tmp_path, monkeypatch):
     assert step.timed_out  # 이력 계산에서 빼야 하는 표본
     assert step.evidence["containers"][0]["health"] == "starting"
     assert not any(leftovers(result).values())
+
+
+def test_memory_shortfall_from_history_is_error_before_start(tmp_path, monkeypatch):
+    """지난 실행의 최대 메모리로 봐서 빈 메모리가 모자라면 띄우지 않고 error (계약 6절)."""
+    if "WETRUN_WORKDIR" not in os.environ:
+        if not docker_sees(tmp_path):
+            pytest.skip("Docker가 임시 폴더를 볼 수 없음. 공유된 경로를 WETRUN_WORKDIR로 지정")
+        monkeypatch.setattr(runner, "WORK_BASE", tmp_path / "work")
+    (tmp_path / "c.yml").write_text(
+        "services:\n  app:\n    image: alpine:3\n    command: [sleep, '300']\n"
+    )
+    wf = tmp_path / "w.yaml"
+    wf.write_text(yaml.safe_dump({
+        "version": 1, "repository": {"path": "sftp:x"}, "snapshot": {"tag": "t"},
+        "compose": {"files": ["c.yml"]}, "steps": [{"use": "up", "timeout": 30}],
+    }))  # fmt: skip
+    history = [{"memory_peak_bytes": {"app": 10**15}}]  # 1PB: 어떤 컴퓨터에도 없는 양
+    step = runner.run(wf, history).steps[0]
+    assert step.status == Status.ERROR and "메모리 부족 예상" in step.message, step
+    assert step.evidence["services"] == ["app"]
+    # 이력이 없으면 확인하지 않고 그대로 띄운다
+    result = runner.run(wf)
+    assert result.steps[0].status == Status.PASS
+    assert not any(leftovers(result).values())
