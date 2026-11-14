@@ -180,7 +180,8 @@ repository:
 | `restore` 단계 `fail`: 스냅샷이 없음 | 그 태그로 만든 백업이 없다. 태그가 맞는지, 백업이 실제로 돌고 있는지 확인 |
 | 디스크 공간 부족 (`error`) | `WETRUN_WORKDIR`를 공간이 넉넉한 곳으로 (기본 `/var/tmp/wetrun`) |
 | 메모리 부족으로 서비스가 종료됨 (`error`) | 다른 컨테이너를 끄거나, 다른 컴퓨터에서 돌리거나, 검증에 필요 없는 서비스를 `up`의 `services`에서 뺀다. 서비스별 상한은 `compose.mem_limit`(기본 2g) |
-| 격리 규칙 위반 (`error`) | compose에 운영 볼륨·외부 네트워크·Docker 소켓·실행 폴더 밖 마운트가 있다. 메시지에 나온 항목을 확인한다 |
+| 격리 규칙 위반 (`error`) | compose에 운영 볼륨·외부 네트워크·Docker 소켓·실행 폴더 밖 마운트, 호스트 경로에 붙는 볼륨(`driver_opts`), `cap_add`·`privileged` 같은 권한 설정이 있다. 메시지에 나온 항목을 검증용 compose에서 빼거나, 그 서비스를 `up`의 `services`에서 뺀다 |
+| "남이 쓸 수 있는 폴더라 쓰지 않음" / "다른 사용자 소유 폴더" | 여러 사람이 쓰는 서버에서 비밀 값이 든 파일을 남이 가로채지 못하게 막은 것이다. 메시지의 폴더를 `chmod go-w`로 바꾸거나, `WETRUN_WORKDIR`를 본인 홈 아래로 지정한다 |
 | `restore-db` 단계 `fail`: psql 종료 코드 3 | DB 덤프가 깨졌다. `pg_dumpall --clean` 덤프는 프로필의 복원 명령처럼 접속 사용자 삭제·생성 두 줄을 걸러야 한다 |
 | 같은 워크플로가 이미 실행 중 | 앞 실행이 끝나기를 기다린다. 예약 시간이 겹치지 않는지 확인 |
 | `restic`이 `$HOME is not defined` | cron이 아닌 곳에서 돌릴 때 `HOME`을 설정한다 |

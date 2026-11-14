@@ -14,7 +14,7 @@ def test_cron_line_runs_daily_with_env_and_log(tmp_path):
     env.write_text("RESTIC_PASSWORD=x\n")
     env.chmod(0o600)
     line = cron_line(wf, "03:05", env, tmp_path / "data")
-    assert line.startswith("5 3 * * * export PATH=")
+    assert line.startswith("5 3 * * * umask 077 && export PATH=")  # 로그를 본인만 읽게
     assert f". {env}" in line and f"-m wetrun run {wf}" in line
     assert f">> {tmp_path / 'data' / 'cron.log'} 2>&1" in line
 

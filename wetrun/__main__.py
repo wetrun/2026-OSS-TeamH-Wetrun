@@ -9,7 +9,7 @@ from pathlib import Path
 
 from wetrun import notify, report, runner, schedule
 from wetrun.contract import EXIT_ERROR, EXIT_PASS, exit_code
-from wetrun.isolation import IsolationError
+from wetrun.isolation import IsolationError, ensure_private_dir
 from wetrun.workflow import WorkflowError, load
 
 COMMANDS = {
@@ -64,7 +64,11 @@ def check_input(path: Path) -> int:
 
 
 def run(path: Path) -> int:
-    lock = _lock(path)
+    try:
+        lock = _lock(path)
+    except (IsolationError, OSError) as e:
+        print(f"wetrun run: 잠금 파일을 만들 수 없음: {e}", file=sys.stderr)
+        return EXIT_ERROR
     if lock is None:
         print(f"wetrun run: 같은 워크플로가 이미 실행 중: {path}", file=sys.stderr)
         return EXIT_ERROR
@@ -81,7 +85,10 @@ def _lock(path: Path):
     # 리포트 폴더에 문제가 있어도 잠금은 되도록 임시 폴더에 둔다. 사용자마다 따로
     lock_dir = Path(tempfile.gettempdir()) / f"wetrun-locks-{os.getuid()}"
     lock_dir.mkdir(mode=0o700, exist_ok=True)
-    f = open(lock_dir / f"{key}.lock", "w")  # noqa: SIM115 - 실행 내내 열어 둔다
+    ensure_private_dir(lock_dir)  # 다른 사용자가 먼저 만든 폴더면 IsolationError
+    # 링크를 따라가지 않고, 내용도 지우지 않는다 (남의 파일을 덮어쓰지 않게)
+    fd = os.open(lock_dir / f"{key}.lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    f = os.fdopen(fd, "w")
     try:
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:

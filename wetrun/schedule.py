@@ -30,7 +30,8 @@ def cron_line(workflow: Path, at: str, env_file: Path | None, data_dir: Path) ->
         raise ScheduleError(f"--at은 HH:MM 형식이어야 함: {at!r}")
     if not workflow.is_file():
         raise ScheduleError(f"워크플로가 없음: {workflow}")
-    parts = [f"export PATH={shlex.quote(os.environ.get('PATH', '/usr/bin:/bin'))}"]
+    # 로그·리포트를 본인만 읽게 (파일 이름 등이 들어 있다)
+    parts = ["umask 077", f"export PATH={shlex.quote(os.environ.get('PATH', '/usr/bin:/bin'))}"]
     if env_file is not None:
         if not env_file.is_file():
             raise ScheduleError(f"env 파일이 없음: {env_file}")

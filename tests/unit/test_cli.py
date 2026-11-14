@@ -105,3 +105,29 @@ def test_same_workflow_runs_only_once_at_a_time(monkeypatch, tmp_path, capsys):
     held.close()
     monkeypatch.setattr(cli, "_run", lambda p: 0)
     assert cli.main(["run", str(path)]) == 0  # 풀리면 다시 실행된다
+
+
+def test_lock_does_not_follow_symlink_or_truncate(monkeypatch, tmp_path, capsys):
+    """공용 임시 폴더에 남이 잠금 파일 자리에 링크를 걸어 둬도, 그 파일을 덮어쓰지 않는다."""
+    import os
+
+    from wetrun import __main__ as cli
+    from wetrun import runner
+
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("지워지면 안 됨")
+    wf = tmp_path / "workflow.yaml"
+    lock_dir = tmp_path / f"wetrun-locks-{os.getuid()}"
+    lock_dir.mkdir(mode=0o700)
+    (lock_dir / f"{runner.workflow_id(wf)}.lock").symlink_to(victim)
+    assert cli.main(["run", str(wf)]) == 2
+    assert victim.read_text() == "지워지면 안 됨"
+    assert "잠금 파일을 만들 수 없음" in capsys.readouterr().err
+    # 남이 쓸 수 있는 폴더도 거부한다
+    (lock_dir / f"{runner.workflow_id(wf)}.lock").unlink()
+    lock_dir.chmod(0o777)
+    assert cli.main(["run", str(wf)]) == 2
