@@ -105,5 +105,6 @@ cron과 같은 빈 환경에서 `wetrun schedule`이 만든 줄로도 통과했�
 1. 실행 이력으로 timeout 자동 조정, "평소보다 느림" 경고, 시작 전 메모리 여유 확인 ([design-decisions.md](../design-decisions.md) 4·8절)
    - 리포트에 워크플로를 구별할 값과 "시간 초과로 끊김" 표시가 필요하다 (계약 변경, 리포트 담당과 합의)
    - 예약 실행으로 이력이 쌓인 뒤 계수를 정한다
-2. 실행이 아예 안 돌았을 때 알리기 (예약 실행이 조용히 멈춘 경우)
-3. systemd timer (필요해지면)
+2. systemd timer (필요해지면)
+
+실행이 아예 돌지 않은 경우는 잡지 않기로 했다. 근거는 [design-decisions.md](../design-decisions.md) 12절.
