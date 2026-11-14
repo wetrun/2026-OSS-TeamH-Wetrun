@@ -102,3 +102,17 @@ def test_restic_url_repository_is_not_a_local_file(wf):
 def test_builtin_checks_skip_private_and_constantless_modules():
     # 현재 steps/ 모듈에는 상수가 없어 아무것도 검사로 잡히지 않아야 한다
     assert all(not name.startswith("_") for name in workflow.builtin_checks())
+
+
+def test_notify_section(wf, monkeypatch):
+    monkeypatch.setenv("WETRUN_TEST_HOOK", "https://discord.test/api/webhooks/1/x")
+    wf(lambda d: d.update(notify={"discord": "env:WETRUN_TEST_HOOK", "when": "fail"}))
+    wf(lambda d: d.update(notify={"discord": "env:WETRUN_TEST_HOOK", "when": ["pass", "error"]}))
+    cases = {
+        "env:<변수>로만": {"discord": "https://discord.test/api/webhooks/1/x"},
+        "중에서 골라야 함": {"discord": "env:WETRUN_TEST_HOOK", "when": ["failed"]},
+        "`on` 대신 `when`": {"discord": "env:WETRUN_TEST_HOOK", True: ["fail"]},
+        "notify.discord: 필수 키가 없음": {"when": ["fail"]},
+    }
+    for expected, notify in cases.items():
+        assert expected in problems(wf, lambda d, n=notify: d.update(notify=n)), expected
