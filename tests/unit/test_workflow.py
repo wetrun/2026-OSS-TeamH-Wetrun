@@ -81,6 +81,7 @@ def test_rejects_bad_input(wf):
         "지원하지 않는 버전": lambda d: d.update(version=2),
         "steps: 비어 있지 않은": lambda d: d.update(steps=[]),
         "compose.mem_limit": lambda d: d["compose"].update(mem_limit=512),
+        "snapshot.max_age_days": lambda d: d["snapshot"].update(max_age_days=0),
     }
     for expected, edit in cases.items():
         assert expected in problems(wf, edit), expected
@@ -116,3 +117,8 @@ def test_notify_section(wf, monkeypatch):
     }
     for expected, notify in cases.items():
         assert expected in problems(wf, lambda d, n=notify: d.update(notify=n)), expected
+
+
+def test_snapshot_max_age_days_accepts_positive_number(wf):
+    wf(lambda d: d["snapshot"].update(max_age_days=3))
+    wf(lambda d: d["snapshot"].update(max_age_days=0.5))

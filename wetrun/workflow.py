@@ -25,7 +25,7 @@ TOP_KEYS = {
 }  # 키 → 필수 여부
 SECTION_KEYS = {
     "repository": ({"path"}, {"password"}),
-    "snapshot": ({"tag"}, {"select"}),
+    "snapshot": ({"tag"}, {"select", "max_age_days"}),
     "compose": ({"files"}, {"env_file", "env", "mem_limit"}),
     "notify": ({"discord"}, {"when"}),
 }  # 섹션 → (필수, 선택)
@@ -81,6 +81,13 @@ def load(path: Path) -> dict:
         elif section in wf:
             problems.append(f"{section}: 매핑이어야 함")
 
+    age = (
+        (wf.get("snapshot") or {}).get("max_age_days")
+        if isinstance(wf.get("snapshot"), dict)
+        else None
+    )
+    if age is not None and (isinstance(age, bool) or not isinstance(age, int | float) or age <= 0):
+        problems.append("snapshot.max_age_days: 0보다 큰 숫자(일)여야 함")
     repo = (wf.get("repository") or {}).get("path")
     if isinstance(repo, str) and not RESTIC_URL.match(repo):
         problems += _check_file("repository.path", base, repo)

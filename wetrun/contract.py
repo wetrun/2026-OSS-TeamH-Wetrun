@@ -20,6 +20,7 @@ class StepResult:
     message: str = ""
     evidence: dict = field(default_factory=dict)  # 비밀 값 없음
     duration_s: float = 0.0
+    timed_out: bool = False  # 실행기가 시간 제한으로 끊음. 실행 이력 계산에서 이 표본은 뺀다
 
 
 @dataclass
@@ -32,6 +33,11 @@ class RunResult:
     steps: list[StepResult]
     images: dict[str, str] = field(default_factory=dict)  # 서비스 → 이미지 digest
     cleanup_errors: list[str] = field(default_factory=list)
+    # 실행 이력 (contract.md 6절). 같은 workflow_id의 리포트끼리 묶는다
+    workflow_id: str = ""
+    snapshot_time: str = ""  # 검사한 스냅샷의 생성 시각 (ISO 8601)
+    memory_peak_bytes: dict[str, int] = field(default_factory=dict)  # 서비스 → 관측한 최대 메모리
+    warnings: list[str] = field(default_factory=list)  # 판정에 영향 없는 알림 (예: 평소보다 느림)
 
 
 # 검사 컨테이너 종료 코드 → 단계 상태. 그 외 코드·result.json 없음·시간 초과는 ERROR
