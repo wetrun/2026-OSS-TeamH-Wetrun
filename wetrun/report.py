@@ -4,9 +4,11 @@
 - summary(result): 사람이 읽는 요약. 단계마다 상태와 메시지만 (stderr 같은 evidence는 JSON에만)
 - next_actions(data): 판정을 보고 운영자가 할 일. 통과면 빈 목록
 - save(result, directory): JSON 리포트를 <directory>/<run_id>.json으로 저장한다 (0600)
+- load_history(directory, workflow_id, limit): 같은 워크플로의 지난 리포트를 최근 순으로 (계약 6절)
+- backup_age(data): 검사한 백업이 실행 시점에 얼마나 묵었는지 ("6일 전")
 
 비밀 값은 실행기가 단계 결과에서 이미 ***로 가린다. secrets를 넘기면 한 번 더 가린다.
-가리는 곳은 비밀 값이 섞일 수 있는 글자뿐이다: 단계 메시지, evidence 안의 글자, 정리 오류.
+가리는 곳은 비밀 값이 섞일 수 있는 글자뿐이다: 단계 메시지, evidence 안의 글자, 정리 오류, 경고.
 판정·상태·숫자처럼 정해진 칸은 건드리지 않는다 (비밀번호가 "pass"나 숫자여도 깨지지 않게).
 """
 
@@ -14,6 +16,7 @@ import json
 import os
 from collections.abc import Iterable
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 
 from wetrun.contract import RunResult, exit_code, verdict
@@ -42,10 +45,13 @@ def to_dict(result: RunResult, secrets: Iterable[str] = ()) -> dict:
 
 def summary(result: RunResult, secrets: Iterable[str] = ()) -> str:
     data = to_dict(result, secrets)
+    age = backup_age(data)
+    age = f" ({age})" if age else ""
     lines = [
         f"Wetrun 결과: {data['verdict'].upper()} (종료 코드 {data['exit_code']})",
         *[f"할 일: {a}" for a in next_actions(data)],
-        f"실행 {data['run_id']} · 스냅샷 {(data['snapshot_id'] or '-')[:8]} · "
+        *[f"참고: {one_line(w)}" for w in data["warnings"]],
+        f"실행 {data['run_id']} · 스냅샷 {(data['snapshot_id'] or '-')[:8]}{age} · "
         f"{data['duration_s']}초",
         "",
     ]
@@ -103,6 +109,26 @@ def load_history(directory: Path, workflow_id: str, limit: int = 20) -> list[dic
     return found[:limit]
 
 
+def backup_age(data: dict) -> str:
+    """검사한 스냅샷이 실행을 시작한 때 기준으로 얼마나 묵었는지. 모르면 빈 글자.
+
+    지금 시각이 아니라 started_at을 기준으로 해서, 지난 리포트를 다시 봐도 같은 값이 나온다.
+    """
+    try:
+        made = datetime.fromisoformat(data.get("snapshot_time") or "")
+        ran = datetime.fromisoformat(data.get("started_at") or "")
+        seconds = (ran - made).total_seconds()
+    except (TypeError, ValueError):  # 형식이 다르거나 시간대가 한쪽에만 있음
+        return ""
+    if seconds < 0:  # 시계가 어긋남
+        return ""
+    if seconds < 3600:
+        return "1시간 안"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}시간 전"
+    return f"{seconds / 86400:.0f}일 전"  # 실행기 경고("검사한 백업이 N일 전 것")와 같은 반올림
+
+
 def one_line(text: str) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= MAX_MESSAGE else text[: MAX_MESSAGE - 1] + "…"
@@ -117,6 +143,7 @@ def _mask(data: dict, secrets: Iterable[str]) -> dict:
         step["message"] = mask_text(step["message"], secrets)
         step["evidence"] = mask_text(step["evidence"], secrets)
     data["cleanup_errors"] = mask_text(data["cleanup_errors"], secrets)
+    data["warnings"] = mask_text(data["warnings"], secrets)
     return data
 
 

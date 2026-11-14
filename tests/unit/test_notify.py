@@ -208,3 +208,18 @@ def test_unreachable_webhook_is_reported():
 def test_http_webhook_refused():
     ok, reason = notify.send("http://example.test/hook", result(Status.FAIL))
     assert not ok and "https" in reason
+
+
+def test_warnings_ride_along_but_never_ring():
+    r = result(Status.PASS)
+    r.warnings = ["검사한 백업이 6일 전 것"]
+    assert not notify.should_notify(r)  # 경고만으로는 보내지 않음 (contract 6절)
+    b = notify.payload(r)
+    assert field(b, "참고") == "• 검사한 백업이 6일 전 것"
+    assert b["flags"] == notify.SUPPRESS_NOTIFICATIONS  # when에 pass를 넣었어도 무음 그대로
+
+
+def test_footer_shows_backup_age():
+    r = result(Status.FAIL)
+    r.snapshot_time = "2026-11-08T21:10:16+09:00"
+    assert "스냅샷 abcdef12 (5일 전)" in card(notify.payload(r))["footer"]["text"]

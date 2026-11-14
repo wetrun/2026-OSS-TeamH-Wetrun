@@ -12,7 +12,7 @@
 | 서비스 응답 확인 | `steps/http.py` | 완료 (#14) |
 | 파일 대조 | `steps/ref_files.py` | 완료 (#21, #22) |
 | Immich 워크플로 | `profiles/immich/workflow.yaml` | 완료 (#23). WSL2 Ubuntu에서 `wetrun run` 전 단계 pass (검사 컨테이너 안 ref_files 포함) |
-| 리포트 | `report.py` | 완료 (#24). 실행기 연결(`__main__.py`)은 실행기 담당과 합의 필요 |
+| 리포트 | `report.py` | 완료 (#24). `wetrun run` 연결 (#29). 경고·백업 나이 표시 (계약 6절). `load_history`는 #41 |
 | 알림 | `notify.py` | 완료 (#26). `wetrun run` 연결 (#29). 카드 형식으로 바꿈 |
 | DB 질의 | `steps/db_query.py` | v0.1 보류 (표준 라이브러리로 DB 접속 불가) |
 
@@ -73,13 +73,15 @@
 
 ## 리포트와 알림
 
-모든 함수는 `secrets`(가릴 비밀 값 목록)를 받는다. 실행기 연결 후에는 실행기가 넘긴다
-(지금은 `__main__.py`가 report·notify를 부르지 않는다).
+모든 함수는 `secrets`(가릴 비밀 값 목록)를 받는다. `wetrun run`(`__main__.py`)이 넘긴다.
 
 - `report.to_dict(result, secrets)`: JSON 리포트. `verdict`, `exit_code`를 계산해 넣는다
 - `report.summary(result, secrets)`: 사람이 읽는 요약
 - `report.next_actions(data)`: 할 일 목록. 통과면 빈 목록
 - `report.save(result, dir, secrets)`: `<dir>/<run_id>.json` (0600)
+- `report.load_history(dir, workflow_id, limit=20)`: 같은 워크플로의 지난 리포트를 최근 순으로 (계약 6절).
+  실행기가 시간 제한·느림 경고·메모리 확인에 쓴다. 실행기 담당이 #41에서 만들었다
+- `report.backup_age(data)`: 검사한 스냅샷이 실행 시작 때 얼마나 묵었는지 ("6일 전"). 모르면 빈 글자
 - `notify.send(url, result, when, secrets, title=, report_path=)`: Discord 웹훅. 웹훅 주소는 출력하지 않는다. https만 보낸다.
   `title`(서비스 이름)과 `report_path`(리포트 위치)는 부르는 쪽이 넘긴다
 
@@ -92,8 +94,9 @@
 ┃ 할 일 백업 원본과 백업 작업을 확인해 주세요.
 ┃ 단계  ✅ restore       1.4초                     ← 고정폭 상자로 줄 맞춤
 ┃       ❌ photos        1.5초
+┃ 참고  • 검사한 백업이 6일 전 것 …              ← 경고가 있을 때만 (계약 6절)
 ┃ 리포트 ~/.local/share/wetrun/runs/<실행 ID>.json  ← fail·error만
-┃ <컴퓨터 이름> · 스냅샷 ef78df4f · 총 75.8초 · 시각
+┃ <컴퓨터 이름> · 스냅샷 ef78df4f (6일 전) · 총 75.8초 · 시각
 ```
 
 | 정한 것 | 이유 |
@@ -104,6 +107,8 @@
 | pass는 무음 (`flags: 4096`), 정리 실패가 섞이면 울림 | "알림이 울리면 할 일이 있다" |
 | 이름은 "Wetrun"으로 덮어씀 (`username`) | 사용자가 웹훅 이름을 바꿀 필요가 없다 |
 | 리포트 JSON 첨부는 하지 않음 | 비밀 값은 가려도 내부 경로·호스트가 외부로 나간다 |
+| 경고(`warnings`)는 "참고"로 같이 싣되, 경고만으로는 보내지 않음 | 보낼지는 `when`만 본다. pass에 경고가 붙어도 무음 그대로 (계약 6절) |
+| 백업 나이는 반올림한 일 수 | 실행기 경고("검사한 백업이 N일 전 것")와 같은 숫자가 나오게 |
 
 Discord 제한(글자 2000자, 칸 1024자, 카드 6000자)을 넘으면 칸마다 잘라 넣는다.
 카드 폭은 Discord가 글 길이로 정하고 지정할 수 없다. 휴대폰에서는 항상 화면 폭이다.
@@ -114,7 +119,7 @@ Discord 제한(글자 2000자, 칸 1024자, 카드 6000자)을 넘으면 칸마�
 ```
 Wetrun 결과: FAIL (종료 코드 1)
 할 일: 백업이나 복구한 데이터에 문제가 있음. restore-db 단계를 확인 (근거는 JSON 리포트)
-실행 20261114-053430-e72399 · 스냅샷 ef78df4f · 14.0초
+실행 20261114-053430-e72399 · 스냅샷 ef78df4f (6일 전) · 14.0초
 
   pass     restore        1.7초  스냅샷 복원
   pass     up-db          6.7초  서비스 기동
@@ -122,15 +127,18 @@ Wetrun 결과: FAIL (종료 코드 1)
   skipped  up             0.0초  앞 필수 단계가 통과하지 못함
 ```
 
-워크플로의 알림 설정 (실행기 연결 후):
+경고가 있으면 "할 일" 아래에 `참고: 검사한 백업이 6일 전 것 (기준 3일). …`처럼 한 줄씩 붙는다.
+
+워크플로의 알림 설정:
 
 ```yaml
 notify:
   discord: env:WETRUN_DISCORD_WEBHOOK
-  when: [fail, error]   # YAML에서 `on`은 true로 읽혀서 `when`을 쓴다. `when: fail`처럼 하나만 써도 된다
+  when: [fail, error]   # YAML에서 `on`은 true로 읽혀서 `when`을 쓴다
 ```
 
-`when`에 쓸 수 있는 값은 `notify.WHEN_CHOICES`(pass, fail, error)다. 틀린 값은 check-input에서 거르는 게 맞다 (실행기 연결 때 합의).
+`when`은 `notify.WHEN_CHOICES`(pass, fail, error) 중에서 고른 목록이다. 하나여도 `[fail]`처럼 목록으로 쓴다.
+틀린 값은 check-input이 거른다.
 
 ## 알려진 한계
 
@@ -138,13 +146,12 @@ notify:
 - 사진·동영상 등 종류별 최소 1개 샘플링은 없다 (testenv는 PNG뿐)
 - `profiles/immich/workflow.yaml`은 testenv 생성물(`../../testenv/`)을 가리킨다. 다른 Immich에는 경로를 바꿔 쓴다
 - 실제 크기 사진으로 다운로드 속도를 재지 않았다 (testenv는 작은 PNG 5장). 사진이 많으면 ref_files `timeout`을 늘려야 할 수 있다
-- 알림은 실제 Discord 채널(PC·휴대폰)에서 확인했다. pass는 무음, fail은 휴대폰 푸시가 울림. error 푸시는 따로 확인하지 않았다
+- 알림은 실제 Discord 채널(PC·휴대폰)에서 확인했다. pass는 무음, fail·error는 휴대폰 푸시가 울림 (고장 백업 4종과 restic 비밀번호 틀림으로 확인)
 - 기본 알림은 실패할 때만이라, wetrun이 아예 안 돌아도 조용하다 ("dead man's switch" 문제: 살아 있다는 신호가 없으면 멈춘 걸 모른다). 실행기 쪽에서 "잡지 않기로" 정했다 (design-decisions 12절). 매일 결과를 받으려면 `when: [pass, fail, error]`
 
 ## 나중에 할 것
 
-- 스냅샷 나이 표시와 "백업이 오래됨" 경고: 백업이 멈춰도 복구 검증은 매일 pass다. 실행기가 스냅샷 시각을 결과에 넣어야 한다 (#37 warnings와 함께 제안)
-- 연속 실패 횟수, 마지막 성공 시각: 실행 이력 읽기(`report.load_history`, #37)가 생기면
+- 연속 실패 횟수, 마지막 성공 시각을 알림에: `report.load_history`로 계산할 수 있다
 - 실패 알림에 역할 멘션: 지금은 멘션을 모두 끈다. 켜려면 역할 ID를 적을 설정 키가 필요하다
 
 ## 실행기 없이 검사 시험하기

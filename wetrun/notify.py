@@ -7,7 +7,8 @@
 알림 모양 (시안을 실제 채널에서 비교해 정함):
 - 한 줄 글자: 판정 · 서비스 — 문제 단계. 휴대폰 푸시 미리보기에 이 줄이 보인다
 - 카드: 판정 색 막대(pass 초록, fail 빨강, error 주황) → 제목(해요체 한 문장) → 원인 →
-  할 일 → 단계 상자(고정폭으로 줄 맞춤) → 정리 오류 → 리포트 위치 → 컴퓨터·스냅샷·총 시간
+  할 일 → 단계 상자(고정폭으로 줄 맞춤) → 참고(경고) → 정리 오류 → 리포트 위치 →
+  컴퓨터·스냅샷(백업 나이)·총 시간
 - 보내는 이름은 "Wetrun"으로 덮어쓴다. 사용자가 웹훅 이름을 바꿀 필요가 없다
 - pass는 무음(SUPPRESS_NOTIFICATIONS): 채널에는 남지만 푸시는 울리지 않는다.
   "알림이 울리면 할 일이 있다"를 지키려고. 정리 실패가 섞이면 울린다
@@ -91,7 +92,7 @@ def payload(
     fields = []
     if steps:
         fields.append({"name": "단계", "value": _steps_box(steps), "inline": False})
-    if data.get("warnings"):  # 판정에 영향 없는 참고 (실행 이력, contract 6절 제안)
+    if data["warnings"]:  # 판정에 영향 없는 경고 (contract 6절). 경고만으로는 보내지 않는다
         lines = [f"• {report.one_line(w)}" for w in data["warnings"][:MAX_CLEANUP_LISTED]]
         fields.append({"name": "참고", "value": _cut("\n".join(lines), LIMIT_FIELD)})
     if cleanup:
@@ -109,7 +110,8 @@ def payload(
     if not show_report:
         foot.append(f"실행 {data['run_id']}")
     if data["snapshot_id"]:
-        foot.append(f"스냅샷 {data['snapshot_id'][:8]}")
+        age = report.backup_age(data)
+        foot.append(f"스냅샷 {data['snapshot_id'][:8]}" + (f" ({age})" if age else ""))
     foot.append(f"총 {data['duration_s']}초")
 
     embed = {
