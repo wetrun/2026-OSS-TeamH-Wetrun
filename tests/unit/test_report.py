@@ -133,3 +133,54 @@ def test_save_writes_private_json(tmp_path):
     assert path.name == "r1.json"
     assert json.loads(path.read_text())["verdict"] == "pass"
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+# ---- 경고·백업 나이 (contract 6절) ----
+
+
+def test_warning_shows_as_note_under_todo():
+    step = StepResult("photos", "ref_files", Status.FAIL, message="빠진 파일 1개")
+    r = result(step)
+    r.warnings = ["검사한 백업이 6일 전 것", "restore-db가 평소보다 느림"]
+    lines = report.summary(r).splitlines()
+    assert lines[1].startswith("할 일: ")
+    assert lines[2:4] == ["참고: 검사한 백업이 6일 전 것", "참고: restore-db가 평소보다 느림"]
+    assert report.to_dict(r)["verdict"] == "fail"  # 경고는 판정을 바꾸지 않음
+
+
+def test_warnings_are_masked():
+    r = result(*PASSED)
+    r.warnings = ["느림 (pw=hunter2)"]
+    assert report.to_dict(r, secrets=["hunter2"])["warnings"] == ["느림 (pw=***)"]
+
+
+def test_summary_shows_backup_age():
+    r = result(*PASSED)
+    r.snapshot_time = "2026-11-08T07:10:16.123456789+09:00"  # restic은 나노초까지 적는다
+    assert "스냅샷 abcdef12 (6일 전) · 70.5초" in report.summary(r)
+
+
+def test_backup_age():
+    run = "2026-11-14T09:00:00+09:00"
+
+    def age(snap, ran=run):
+        return report.backup_age({"snapshot_time": snap, "started_at": ran})
+
+    assert age("2026-11-14T08:30:00+09:00") == "1시간 안"
+    assert age("2026-11-13T14:00:00Z") == "10시간 전"  # 시간대가 달라도 같은 순간끼리 비교
+    assert age("2026-11-11T08:59:59+09:00") == "3일 전"
+    for unknown in ["", "어제", "2026-11-14T08:00:00", "2026-11-15T09:00:00+09:00"]:
+        assert age(unknown) == ""  # 형식 오류, 시간대 없음, 미래(시계 어긋남)
+    assert report.backup_age({}) == ""  # 옛 리포트
+
+
+def test_backup_age_rounds_like_runner_warning():
+    # 같은 카드에 실행기 경고(#40)의 "6일 전"과 꼬리의 "5일 전"이 같이 보이지 않게
+    from datetime import datetime
+
+    from wetrun.runner import stale_snapshot_warning
+
+    snap, ran = "2026-11-08T19:00:00.123456789+09:00", "2026-11-14T09:00:00+09:00"  # 5.58일
+    (warning,) = stale_snapshot_warning(snap, now=datetime.fromisoformat(ran))
+    assert warning.startswith("검사한 백업이 6일 전 것")
+    assert report.backup_age({"snapshot_time": snap, "started_at": ran}) == "6일 전"
