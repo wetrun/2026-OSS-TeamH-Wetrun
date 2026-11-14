@@ -67,6 +67,7 @@ _ASSET_DEFAULTS = {
 REQUEST_TIMEOUT_S = 30
 CHUNK = 64 * 1024  # 다운로드를 이만큼씩 읽어 해시에 넣는다 (메모리에 통째로 올리지 않음)
 MAX_LISTED = 20  # evidence에 남길 파일 이름 최대 개수
+MAX_NAMED = 3  # 메시지에 적을 파일 이름 최대 개수 (알림·요약에서 JSON을 열지 않아도 보이게)
 MAX_PAGES = 1000
 
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -146,10 +147,10 @@ def _verify(cfg: dict, ref_files: list, ref_albums: list, end: float) -> tuple[S
         ]
         if missing:
             evidence["missing"] = missing[:MAX_LISTED]
-            problems.append(f"빠진 파일 {len(missing)}개")
+            problems.append(f"빠진 파일 {len(missing)}개{_names(missing)}")
         if changed:
             evidence["checksum_mismatch"] = changed[:MAX_LISTED]
-            problems.append(f"체크섬이 다른 파일 {len(changed)}개")
+            problems.append(f"체크섬이 다른 파일 {len(changed)}개{_names(changed)}")
 
         if cfg["albums"]:
             album_problems = _check_albums(api, cfg["albums"], ref_albums)
@@ -165,7 +166,8 @@ def _verify(cfg: dict, ref_files: list, ref_albums: list, end: float) -> tuple[S
         download = _download(api, cfg, matched)
         evidence["download"] = download
         if download.get("mismatch"):
-            problems.append(f"다운로드한 원본이 다른 파일 {len(download['mismatch'])}개")
+            bad = download["mismatch"]
+            problems.append(f"다운로드한 원본이 다른 파일 {download['mismatched']}개{_names(bad)}")
 
     except ServiceError as err:
         problems.append(str(err))
@@ -197,7 +199,7 @@ def _verify(cfg: dict, ref_files: list, ref_albums: list, end: float) -> tuple[S
 
 
 def _download(api: "_Api", cfg: dict, matched: list) -> dict:
-    """무작위 순서로 마감까지 받아 본다. 다른 파일이 있거나 시간이 끝나면 멈춘다."""
+    """무작위 순서로 마감까지 받아 본다. 다른 파일이 있어도 끝까지 보고, 시간이 끝나면 멈춘다."""
     needed = sample_size(cfg["max_defect_rate"], cfg["confidence"])
     result = {"checked": 0, "of": len(matched), "needed": min(needed, len(matched))}
     bad = []
@@ -206,11 +208,16 @@ def _download(api: "_Api", cfg: dict, matched: list) -> dict:
             actual = api.sha1(cfg["download"].replace("{id}", str(item["id"])))
         except OutOfTime:
             break
+        except (
+            ServiceError
+        ) as err:  # 기록은 있는데 원본을 못 받음 (파일 누락 등). 어느 파일인지 붙인다
+            raise ServiceError(f"{err}: {ref['filename']}") from None
         result["checked"] += 1
         if actual != ref["sha1"].lower():
             bad.append(ref["filename"])
     if bad:
         result["mismatch"] = bad[:MAX_LISTED]
+        result["mismatched"] = len(bad)
     if result["checked"] < len(matched):
         result["seed"] = cfg["seed"]
         if result["checked"]:
@@ -242,6 +249,13 @@ def _list_assets(api: "_Api", spec: dict) -> list[dict]:
             return found
         body[spec["page"]] = int(nxt)
     raise ConfigError(f"파일 목록이 {MAX_PAGES}쪽을 넘음")
+
+
+def _names(names: list[str]) -> str:
+    """메시지 끝에 붙일 파일 이름. ': a.png, b.png, c.png 외 2개'"""
+    shown = ", ".join(names[:MAX_NAMED])
+    more = f" 외 {len(names) - MAX_NAMED}개" if len(names) > MAX_NAMED else ""
+    return f": {shown}{more}" if names else ""
 
 
 def _check_albums(api: "_Api", spec: dict, ref_albums: list) -> list[str]:
