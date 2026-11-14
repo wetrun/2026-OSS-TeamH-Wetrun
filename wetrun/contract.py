@@ -35,6 +35,7 @@ class RunResult:
     cleanup_errors: list[str] = field(default_factory=list)
     # 실행 이력 (contract.md 6절). 같은 workflow_id의 리포트끼리 묶는다
     workflow_id: str = ""
+    snapshot_time: str = ""  # 검사한 스냅샷의 생성 시각 (ISO 8601)
     memory_peak_bytes: dict[str, int] = field(default_factory=dict)  # 서비스 → 관측한 최대 메모리
     warnings: list[str] = field(default_factory=list)  # 판정에 영향 없는 알림 (예: 평소보다 느림)
 
