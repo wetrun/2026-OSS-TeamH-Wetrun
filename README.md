@@ -20,6 +20,23 @@ make lint test
 
 처음이라면 [docs/onboarding.md](docs/onboarding.md)부터. 규칙은 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## 사용
+
+Linux와 Docker(Compose v2), restic 0.18 이상이 필요하다. 워크플로 예시는 [`profiles/immich/workflow.yaml`](profiles/immich/workflow.yaml),
+작성 규칙은 [docs/contract.md](docs/contract.md).
+
+```sh
+export RESTIC_PASSWORD=...                          # 워크플로의 env: 참조 값
+uv run wetrun check-input profiles/immich/workflow.yaml   # 아무것도 띄우지 않고 입력만 검사
+uv run wetrun run profiles/immich/workflow.yaml           # 복구·검사 후 요약 출력
+```
+
+- 종료 코드: `0` 통과, `1` 백업·복구 문제(`fail`), `2` 입력·환경 문제(`error`), `3` 정리 실패
+- JSON 리포트는 `~/.local/share/wetrun/runs/`에 쌓인다 (`WETRUN_REPORT_DIR`).
+- 검증하는 동안 서비스 하나만큼의 메모리와, 복원할 백업 크기만큼의 디스크가 더 필요하다. 운영 서버가 빠듯하면 다른 컴퓨터에서 돌린다.
+- 매일 자동 실행: `uv run wetrun schedule <workflow.yaml> --at 03:30 --env-file <비밀 값 파일>`이 출력하는 줄을 `crontab -e`에 붙여 넣는다. 같은 워크플로는 동시에 하나만 실행된다.
+- macOS 개발 환경은 [docs/handoff/runner.md](docs/handoff/runner.md)의 `WETRUN_WORKDIR` 안내를 본다.
+
 ## 구조
 
 | 경로 | 내용 |
