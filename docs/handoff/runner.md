@@ -72,7 +72,7 @@ testenv 백업으로 끝까지 돌렸다. macOS + Colima, Immich v3.3.5, restic 
   - testenv Immich를 켜 둔 채로 검증해도 충돌하지 않았다
   - 사진 파일이 root 소유인 실제 백업도 결과가 macOS와 같았다: 정상 `pass`(53초), 덤프 손상·누락 `fail`
   - 정리 후 남은 자원 없음
-- **확인하지 못한 것:** Compose 2.40보다 오래된 버전에 `--wait-timeout`이 있는지
+- **오래된 Compose (#35):** Docker 24.0.9 + Compose 2.16.0 조합(Docker-in-Docker)에서 실행기 통합 시험이 통과했다. Compose 2.16 클라이언트는 Docker 25 이상 엔진에 접속하지 못하므로(API 1.44 미만 거부), 옛 Compose는 옛 엔진과 함께 쓰는 경우만 의미가 있다
 - **중복 실행 방지가 없다.** 실행마다 프로젝트 이름이 달라 겹쳐도 안전하다. 예약 실행을 만들 때 추가한다.
 - **오프라인:** `alpine:3`(Docker 확인·정리용)과 `python:3.12-slim`(검사용)을 미리 받아 둬야 한다.
 
