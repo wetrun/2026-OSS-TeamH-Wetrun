@@ -86,6 +86,7 @@ def test_rejects_bad_input(wf):
         "steps: 비어 있지 않은": lambda d: d.update(steps=[]),
         "compose.mem_limit": lambda d: d["compose"].update(mem_limit=512),
         "snapshot.max_age_days": lambda d: d["snapshot"].update(max_age_days=0),
+        "repository.read_only": lambda d: d["repository"].update(read_only="yes"),
     }
     for expected, edit in cases.items():
         assert expected in problems(wf, edit), expected
@@ -126,3 +127,9 @@ def test_notify_section(wf, monkeypatch):
 def test_snapshot_max_age_days_accepts_positive_number(wf):
     wf(lambda d: d["snapshot"].update(max_age_days=3))
     wf(lambda d: d["snapshot"].update(max_age_days=0.5))
+
+
+def test_repository_path_can_be_env_and_read_only(wf, monkeypatch):
+    # 접속 정보가 든 원격 주소를 YAML에 쓰지 않도록 env:를 허용한다
+    monkeypatch.setenv("WETRUN_TEST_REPO", "sftp:backup:/srv/repo")
+    wf(lambda d: d["repository"].update(path="env:WETRUN_TEST_REPO", read_only=True))

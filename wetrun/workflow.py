@@ -24,7 +24,7 @@ TOP_KEYS = {
     "steps": True,
 }  # 키 → 필수 여부
 SECTION_KEYS = {
-    "repository": ({"path"}, {"password"}),
+    "repository": ({"path"}, {"password", "read_only"}),
     "snapshot": ({"tag"}, {"select", "max_age_days"}),
     "compose": ({"files"}, {"env_file", "env", "mem_limit"}),
     "notify": ({"discord"}, {"when"}),
@@ -88,6 +88,8 @@ def load(path: Path) -> dict:
     )
     if age is not None and (isinstance(age, bool) or not isinstance(age, int | float) or age <= 0):
         problems.append("snapshot.max_age_days: 0보다 큰 숫자(일)여야 함")
+    if not isinstance((wf.get("repository") or {}).get("read_only", False), bool):
+        problems.append("repository.read_only: true 또는 false여야 함")
     repo = (wf.get("repository") or {}).get("path")
     if isinstance(repo, str) and not RESTIC_URL.match(repo):
         problems += _check_file("repository.path", base, repo)

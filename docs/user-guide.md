@@ -145,7 +145,32 @@ Wetrun이 보장하는 것은 **실행되면 결과를 남기고, 실패하면 �
 0 9 * * * ssh 서버 'find ~/.local/share/wetrun/runs -name "*.json" -mmin -2160 | grep -q .' || echo "Wetrun 리포트가 36시간 넘게 없음" | mail -s "Wetrun 멈춤" 나
 ```
 
-## 7. 자주 겪는 문제
+## 7. 원격 저장소의 백업 검증하기
+
+실제 재해(디스크 고장 등)가 나면 같은 서버의 백업도 같이 사라진다. 그래서 **다른 곳에 둔 백업을 검증하는 쪽이 더 의미 있다.** Wetrun은 restic이 지원하는 저장소를 그대로 쓴다.
+
+```yaml
+repository:
+  path: sftp:backup-server:/srv/restic-repo   # 또는 env:WETRUN_REPO (접속 정보가 든 주소)
+  password: env:RESTIC_PASSWORD
+  read_only: true                               # 검증 계정이 읽기 권한만 있을 때
+```
+
+보안을 위해 다음을 권한다.
+
+| 항목 | 권장 | 이유 |
+|---|---|---|
+| 검증 계정 권한 | **읽기 전용** + `read_only: true` | 검증 컴퓨터가 뚫려도 그 계정으로 백업을 지울 수 없다. 랜섬웨어는 백업부터 지운다 |
+| 저장소 주소 | 접속 정보가 들어가면 `env:`로 | YAML이 커밋되면 공개된다 |
+| ssh 키 | 검증 전용 키. 서버의 `authorized_keys`에 `restrict` 옵션을 붙이고 sftp만 허용 | cron에서 쓰려면 비밀번호 없는 키가 필요하니, 키가 할 수 있는 일을 줄인다 |
+| 호스트 키 | 처음에 한 번 직접 `ssh`로 접속해 `known_hosts`에 등록 | Wetrun은 호스트 키 확인을 끄지 않는다. 모르는 서버면 묻지 않고 실패한다 |
+| 검증 컴퓨터 | 운영 서버만큼 믿을 수 있는 곳 | 검증하는 동안 복원한 사진과 DB가 실행 디렉터리(본인만 접근, 0700)에 평문으로 풀린다. 끝나면 지운다 |
+
+- 백업 내용은 restic이 저장하기 전에 암호화하므로, 저장소를 두는 서버나 클라우드는 내용을 볼 수 없다. 전송 구간도 sftp(ssh)가 암호화한다.
+- 원격 저장소는 복원이 느려진다(시험에서 로컬 3초 → sftp 14초). 클라우드는 내려받기 요금이 붙을 수 있다. `restore`의 `timeout`을 넉넉히 두거나 실행 이력의 자동 조정에 맡긴다.
+- Discord 알림에는 단계 메시지(실패한 파일 이름 등)가 들어간다. 파일 이름도 외부로 나가면 안 되는 환경이면 알림을 쓰지 않는다.
+
+## 8. 자주 겪는 문제
 
 | 증상 | 원인·해결 |
 |---|---|
@@ -157,11 +182,15 @@ Wetrun이 보장하는 것은 **실행되면 결과를 남기고, 실패하면 �
 | `restore-db` 단계 `fail`: psql 종료 코드 3 | DB 덤프가 깨졌다. `pg_dumpall --clean` 덤프는 프로필의 복원 명령처럼 접속 사용자 삭제·생성 두 줄을 걸러야 한다 |
 | 같은 워크플로가 이미 실행 중 | 앞 실행이 끝나기를 기다린다. 예약 시간이 겹치지 않는지 확인 |
 | `restic`이 `$HOME is not defined` | cron이 아닌 곳에서 돌릴 때 `HOME`을 설정한다 |
+| `restore` `error`: 잠금 파일을 만들지 못함 (permission denied) | 읽기 전용 저장소다. `repository.read_only: true` |
+| `restore` `error`: Permission denied (publickey) / Host key verification failed | ssh 키나 `known_hosts` 설정. 같은 사용자로 `ssh 서버`가 비밀번호 없이 되는지 확인 |
+| `restore` `error`: 시간 초과 | 원격 저장소가 응답하지 않는다. 네트워크·서버 확인, 필요하면 `restore`의 `timeout`을 늘린다 |
 | (macOS) Docker가 실행 디렉터리를 볼 수 없음 | `export WETRUN_WORKDIR=~/.cache/wetrun`. macOS의 Docker는 홈 폴더 밖을 빈 폴더로 마운트한다 |
 
-## 8. 한계 (v0.1)
+## 9. 한계 (v0.1)
 
 - 지원 서비스는 Immich, 백업 도구는 restic뿐이다.
 - 일반 사용자로 복원하면 파일 소유자가 복원한 사용자로 바뀐다. DB 데이터 폴더를 그대로 백업하는 서비스는 root로 실행해야 할 수 있다 (Immich는 덤프로 복원해서 괜찮다).
 - 사진이 아주 많으면 정해진 시간 안에서 일부만 내려받아 확인한다. 확인한 수와 놓칠 수 있는 손상 비율은 리포트에 남는다.
 - 예약 실행이 아예 돌지 않은 경우는 알리지 못한다 (6절).
+- 원격 저장소는 sftp로만 시험했다. s3·rest 등은 restic이 지원하지만 직접 확인하지 않았다.
