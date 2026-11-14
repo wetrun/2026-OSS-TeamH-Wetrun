@@ -113,3 +113,17 @@ def test_private_dir_check(tmp_path):
     for bad in (shared, link):
         with pytest.raises(IsolationError):
             ensure_private_dir(bad)
+
+
+def test_run_base_is_created_private_even_with_permissive_umask(tmp_path):
+    import os
+
+    from wetrun.isolation import make_run_dir
+
+    old = os.umask(0o002)  # Ubuntu 기본값
+    try:
+        run_dir = make_run_dir(tmp_path / "base", "wetrun-x")
+    finally:
+        os.umask(old)
+    assert (tmp_path / "base").stat().st_mode & 0o777 == 0o700
+    assert run_dir.stat().st_mode & 0o777 == 0o700

@@ -58,7 +58,8 @@ def project_name(run_id: str) -> str:
 def make_run_dir(base: Path, project: str) -> Path:
     """실행 디렉터리 `<base>/<project>`를 만든다. 이미 있으면 다른 실행과 겹친 것이므로 실패."""
     run_dir = base / project
-    base.mkdir(parents=True, exist_ok=True)
+    # umask가 002인 배포판(Ubuntu 등)에서도 남이 쓸 수 없게 처음부터 0700으로 만든다
+    base.mkdir(mode=0o700, parents=True, exist_ok=True)
     ensure_private_dir(base)
     run_dir.mkdir(mode=0o700)
     return run_dir
