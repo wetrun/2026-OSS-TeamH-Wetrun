@@ -34,6 +34,7 @@ class FakeService:
         self.album_count = 2
         self.login_status = 200
         self.downloads: list[str] = []
+        self.gone: set[str] = set()  # 기록은 있는데 원본 다운로드가 404인 파일
         self.delay = 0.0  # 다운로드 한 번에 걸리는 시간 (느린 서비스 흉내)
 
         service = self
@@ -82,6 +83,8 @@ class FakeService:
                     return self.reply(200, [{"title": "trip", "size": service.album_count}])
                 if self.path.startswith("/files/"):
                     name = self.path.split("/")[2]
+                    if name in service.gone:
+                        return self.reply(404, {})
                     service.downloads.append(name)
                     time.sleep(service.delay)
                     return self.reply(200, raw=service.files[name])
@@ -161,23 +164,33 @@ def test_login_rejected_is_fail(service, io):
 def test_missing_file_is_fail(service, io):
     del service.files["c.png"]
     del service.recorded["c.png"]
-    status, _, evidence = ref_files.check(step(service))
+    status, message, evidence = ref_files.check(step(service))
     assert status is Status.FAIL
     assert evidence["missing"] == ["c.png"]
+    assert message == "빠진 파일 1개: c.png"
 
 
 def test_recorded_checksum_differs_is_fail(service, io):
     service.recorded["b.png"] = sha1(b"other")
-    status, _, evidence = ref_files.check(step(service))
+    status, message, evidence = ref_files.check(step(service))
     assert status is Status.FAIL
     assert evidence["checksum_mismatch"] == ["b.png"]
+    assert message == "체크섬이 다른 파일 1개: b.png"
 
 
 def test_downloaded_file_differs_is_fail(service, io):
     service.files["a.png"] = b"broken"  # 기록은 맞는데 실제 파일만 깨짐
-    status, _, evidence = ref_files.check(step(service))
+    status, message, evidence = ref_files.check(step(service))
     assert status is Status.FAIL
     assert evidence["download"]["mismatch"] == ["a.png"]
+    assert message == "다운로드한 원본이 다른 파일 1개: a.png"
+
+
+def test_original_gone_names_the_file(service, io):
+    service.gone.add("b.png")  # 서비스 기록은 있는데 원본 파일만 사라짐
+    status, message, _ = ref_files.check(step(service))
+    assert status is Status.FAIL
+    assert message == "원본 다운로드 실패 (HTTP 404): b.png"
 
 
 def test_album_shrunk_is_fail(service, io):
@@ -292,3 +305,18 @@ def test_mismatch_found_before_time_runs_out_is_fail(service, io):
     status, _, evidence = ref_files.check(step(service, timeout=1))
     assert status is Status.FAIL
     assert evidence["download"]["mismatch"]
+
+
+def test_message_names_at_most_three_files():
+    assert ref_files._names([]) == ""
+    assert ref_files._names(["a.png"]) == ": a.png"
+    assert ref_files._names([f"{i}.png" for i in range(5)]) == ": 0.png, 1.png, 2.png 외 2개"
+
+
+def test_mismatch_count_is_not_capped(service, io, monkeypatch):
+    monkeypatch.setattr(ref_files, "MAX_LISTED", 1)  # evidence 목록은 잘려도 개수는 전부 센다
+    service.files["a.png"] = b"broken"
+    service.files["b.png"] = b"broken"
+    _, message, evidence = ref_files.check(step(service))
+    assert evidence["download"]["mismatch"] in (["a.png"], ["b.png"])  # 순서는 무작위
+    assert message.startswith("다운로드한 원본이 다른 파일 2개: ")
