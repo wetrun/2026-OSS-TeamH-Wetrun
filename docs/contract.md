@@ -14,17 +14,18 @@
 - 검사는 실행기와 같은 uid·gid로 실행한다 (`isolation.check_user()`). 그래야 `0600`인 `step.json`을 읽고 `out/`에 쓸 수 있다. 실행기가 root면 `nobody`(65534)로 낮추고 실행기가 파일 소유자를 맞춘다.
 - 검사 안의 사용자는 `/etc/passwd`에 없을 수 있다. `HOME`이나 사용자 이름에 기대지 않는다.
 - 네트워크가 끊겨 있으므로 이미지는 실행기가 검사 전에 받아 둔다.
+- 검사 컨테이너는 compose의 `default` 네트워크(없으면 첫 번째 네트워크)에 붙는다.
 
 ### 내장 검사
 
 - `wetrun/steps/<이름>.py`를 `python -m wetrun.steps.<이름>`으로 실행한다.
-- 실행기가 `wetrun` 소스를 읽기 전용으로 마운트해 쓰므로, 내장 검사는 **표준 라이브러리만** 쓴다.
+- 실행기가 `wetrun` 소스를 `/opt/wetrun/wetrun`에 읽기 전용으로 마운트하고 `PYTHONPATH=/opt/wetrun`으로 실행한다. 그래서 내장 검사는 **표준 라이브러리만** 쓴다.
 - 기본 이미지는 `python:3.12-slim`이다.
 - v0.1 내장 검사는 `http`, `ref_files`다. `db_query`는 보류한다: 표준 라이브러리로는 DB에 접속할 수 없고, `exec`는 검사 입출력 규칙 밖이다. 자산 수·앨범 확인은 `ref_files`가 API로 한다.
 
 ### 사용자 정의 검사
 
-`use: script`로 사용자가 지정한 이미지와 명령을 실행한다. 아래 입출력 규칙은 같다.
+`use: script`로 사용자가 지정한 이미지와 명령을 실행한다. 아래 입출력 규칙과 `hardening_args()`(읽기 전용 루트, 권한 제거, 자원 제한)는 내장 검사와 같다.
 
 ## 2. 입력과 출력
 
@@ -66,15 +67,18 @@ compose:
   env:                                # {restore}는 스냅샷을 복원한 실행 디렉터리 안의 경로
     UPLOAD_LOCATION: "{restore}/data/library"
     DB_DATA_LOCATION: "{run}/postgres"
-refs: refs.json
+  mem_limit: 2g                       # 검증 서비스별 메모리 상한 (기본 2g). 서비스별 매핑도 가능
+refs: refs.json                       # 기준 데이터. 백업 밖에 두는 정답지
 steps:
   - {use: restore}                                    # 스냅샷 복원
   - {use: up, name: up-db, services: [database]}      # DB만 먼저 기동 (up이 두 번이라 name 필요)
   - use: exec                                         # 서비스 컨테이너 안에서 명령 실행
     service: database
-    command: [psql, -U, postgres, -d, immich]
+    # pg_dumpall --clean 덤프의 접속 사용자 삭제·생성 줄을 걸러야 ON_ERROR_STOP과 함께 쓸 수 있다 (#13)
+    command: [sh, -c, "sed -e '/^DROP ROLE IF EXISTS postgres;$/d' -e '/^CREATE ROLE postgres;$/d' | psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q"]
     stdin: "{restore}/data/backup/immich.sql"
-  - {use: up}                                         # 나머지 기동, healthy 대기
+    timeout: 600
+  - {use: up, services: [immich-server, redis, database]}  # 검증에 필요한 서비스만 기동 (ML 제외)
   - {use: http, name: ready, url: "http://immich-server:2283/api/server/ping", timeout: 120}
   - use: ref_files
     name: download-hash
@@ -82,6 +86,13 @@ steps:
     account: {email: teamh@wetrun.test, password: env:IMMICH_TEST_PASSWORD}
   - {use: script, name: custom, image: example/check:1, command: [/check.sh], required: false}
 ```
+
+### 경로와 compose 처리
+
+- 상대 경로(`compose.files`, `env_file`, `refs`, 로컬 `repository.path`, `{restore}`가 아닌 `stdin`)는 워크플로 파일 위치 기준이다.
+- `{restore}`, `{run}`으로 시작하는 경로는 복원 후에 생기므로 `check-input`이 확인하지 않는다.
+- `env_file`은 실행 디렉터리에 같은 이름으로 복사된다(0600). compose 안의 `env_file: .env` 같은 상대 경로가 실행 디렉터리 기준으로 풀리기 때문이다.
+- 격리 변환 규칙은 `isolation.violations()`·`sanitize()`가 기준이다. 실행 디렉터리 밖 bind 마운트는 거부하되, `/etc/localtime`·`/etc/timezone`은 읽기 전용일 때만 허용한다.
 
 ### 단계 공통 키
 
@@ -119,6 +130,8 @@ steps:
 - `env:` 변수가 비어 있음
 - 파일이 없음
 - 같은 `name`이 두 번 나옴
+- `timeout`이 양의 정수가 아님
+- 실행기 단계(`restore`, `up`, `exec`)에 `required: false`를 씀
 
 ## 4. 실행과 판정 규칙
 
@@ -128,6 +141,22 @@ steps:
    - 필수 단계가 하나도 없음 → `error`
    - 건너뛴 필수 단계가 남음 → `error`
 4. 정리(이번 실행의 컨테이너·네트워크·볼륨·실행 디렉터리 삭제)는 YAML에 쓰지 않는다. 성공·실패·시간 초과·중단 모두에서 항상 한다.
+5. 중단(Ctrl+C·SIGTERM)되면 진행 중이던 단계는 `error`, 나머지는 `skipped`다.
+
+### 실행기 단계 판정 (#13)
+
+원칙: 원인이 백업 내용에 있으면 `fail`, 실행 환경이나 입력에 있으면 `error`.
+
+| 단계 | `fail` | `error` |
+|---|---|---|
+| `restore` | 복원 전 확인을 통과한 뒤의 복원 실패(저장 데이터 손상), 태그에 맞는 스냅샷 없음 | 저장소 접근 불가, 비밀번호 틀림, 저장소 잠김, 디스크 공간 부족, 시간 초과 |
+| `up` | 컨테이너는 만들었지만 정상 상태가 되지 못함 (종료, unhealthy) | 컨테이너를 만들지 못함(이미지 없음 등), compose 해석 실패·격리 규칙 위반, docker가 응답하지 않음 |
+| `exec` | 0이 아닌 종료 코드, `{restore}` 안의 입력 파일 없음 | 서비스가 실행 중이 아님, 종료 코드 126·127·137, 시간 초과 |
+| 모든 단계 | | 이번 실행의 컨테이너가 메모리 부족으로 죽어서 실패함 (`OOMKilled`) |
+
+- restic은 데이터 손상과 환경 문제를 둘 다 종료 코드 1로 낸다. 그래서 복원 전에 환경 원인을 먼저 확인한다.
+- 실행 전에 Docker가 실행 디렉터리를 실제로 볼 수 있는지 확인하고, 못 보면 아무것도 띄우지 않고 `error`(종료 코드 2)로 멈춘다. macOS의 Docker는 공유하지 않은 경로를 빈 폴더로 마운트해서, 정상 백업이 `fail`로 잘못 나올 수 있기 때문이다.
+- 실행기 단계 `evidence`: 종료 코드, 비밀 값을 가린 stderr 마지막 20줄, 컨테이너 이름과 상태.
 
 ### CLI 종료 코드
 
