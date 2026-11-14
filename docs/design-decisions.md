@@ -394,13 +394,29 @@ desktop(Linux)을 SFTP 백업 서버로 두고, Mac에서 `sftp:desktop:...` 저
 | 알림으로 나가는 정보 | Discord 알림에 실패한 파일 이름 등 단계 메시지가 들어간다. 파일 이름도 밖으로 나가면 안 되는 환경이면 알림을 쓰지 않도록 안내했다 |
 | cron용 ssh 키 | 비밀번호 없는 키가 필요하다. 검증 전용 키로 만들고 서버에서 `restrict`·sftp 전용으로 제한하도록 안내했다 |
 
+**S3·REST 서버 시험 [측정]**
+SFTP만으로는 부족하다고 보고, 실제로 더 많이 쓰이는 S3 호환 저장소와 restic REST 서버도 desktop에 Docker로 띄워 시험했다. 외부 서비스는 쓰지 않았다. MinIO 이미지는 받을 수 없어서 S3 호환 서버는 SeaweedFS를 썼다.
+
+| 저장소 | 경우 | 결과 |
+|---|---|---|
+| S3 (SeaweedFS) | 읽기 전용 키 + `read_only: true`, Immich 끝까지 | `pass` (86초) |
+| S3 | 읽기 전용 키, `read_only` 없음 | `error` (잠금 파일 쓰기 거부, `PutObject: Access Denied`) |
+| S3 | 틀린 비밀 키 | `error`. 다만 **restic이 인증 실패도 재시도해서 시간 제한(20초)까지 기다린 뒤** 끝남 |
+| S3 | 응답 없는 포트 | `error` (즉시) |
+| REST | 접속 정보가 든 주소를 `env:`로, Immich 끝까지 | `pass` (85초) |
+| REST | 틀린 비밀번호 | `error` (즉시) |
+| REST `--append-only` | `read_only` 있음·없음 | 둘 다 `pass`. 잠금 파일도 남지 않음 (rest-server는 잠금 파일 삭제는 허용) |
+
+모든 리포트에 S3 키, REST 비밀번호, restic 비밀번호가 남지 않았다.
+
 **남은 한계**
-- 원격 저장소는 sftp로만 시험했다. s3·rest 등은 restic이 지원하지만 직접 확인하지 않았다.
+- AWS S3·Backblaze B2 같은 실제 클라우드는 같은 S3 방식이지만 직접 확인하지 않았다.
 - 클라우드 저장소의 내려받기 요금과 대용량 복원 시간은 측정하지 않았다.
+- S3 키는 restic이 환경 변수(`AWS_*`)로 읽는다. YAML에서 `env:`로 참조하지 않으므로 Wetrun이 결과에서 가리지는 않는다. restic이 오류 메시지에 키를 출력하지 않는 것은 확인했다.
 
 ---
 
 ## 아직 확인하지 못한 것
 
 - 실행 이력의 계수가 실제 장기 운영에서 맞는지: 예약 실행 이력이 쌓인 뒤 확인한다
-- sftp가 아닌 원격 저장소(s3, rest 등)
+- 실제 클라우드 저장소(AWS S3, Backblaze B2 등)

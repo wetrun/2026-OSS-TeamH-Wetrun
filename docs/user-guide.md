@@ -152,6 +152,8 @@ Wetrun이 보장하는 것은 **실행되면 결과를 남기고, 실패하면 �
 ```yaml
 repository:
   path: sftp:backup-server:/srv/restic-repo   # 또는 env:WETRUN_REPO (접속 정보가 든 주소)
+  # path: s3:https://s3.example.com/bucket/repo  (키는 AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY 환경 변수)
+  # path: env:WETRUN_REPO  →  WETRUN_REPO=rest:https://user:pass@backup.example.com/repo/
   password: env:RESTIC_PASSWORD
   read_only: true                               # 검증 계정이 읽기 권한만 있을 때
 ```
@@ -160,7 +162,7 @@ repository:
 
 | 항목 | 권장 | 이유 |
 |---|---|---|
-| 검증 계정 권한 | **읽기 전용** + `read_only: true` | 검증 컴퓨터가 뚫려도 그 계정으로 백업을 지울 수 없다. 랜섬웨어는 백업부터 지운다 |
+| 검증 계정 권한 | **읽기 전용** + `read_only: true` | 검증 컴퓨터가 뚫려도 그 계정으로 백업을 지울 수 없다. 랜섬웨어는 백업부터 지운다. S3는 읽기·목록 권한만 준 키, REST 서버는 `--append-only` 모드나 읽기 전용 사용자 |
 | 저장소 주소 | 접속 정보가 들어가면 `env:`로 | YAML이 커밋되면 공개된다 |
 | ssh 키 | 검증 전용 키. 서버의 `authorized_keys`에 `restrict` 옵션을 붙이고 sftp만 허용 | cron에서 쓰려면 비밀번호 없는 키가 필요하니, 키가 할 수 있는 일을 줄인다 |
 | 호스트 키 | 처음에 한 번 직접 `ssh`로 접속해 `known_hosts`에 등록 | Wetrun은 호스트 키 확인을 끄지 않는다. 모르는 서버면 묻지 않고 실패한다 |
@@ -184,7 +186,8 @@ repository:
 | `restic`이 `$HOME is not defined` | cron이 아닌 곳에서 돌릴 때 `HOME`을 설정한다 |
 | `restore` `error`: 잠금 파일을 만들지 못함 (permission denied) | 읽기 전용 저장소다. `repository.read_only: true` |
 | `restore` `error`: Permission denied (publickey) / Host key verification failed | ssh 키나 `known_hosts` 설정. 같은 사용자로 `ssh 서버`가 비밀번호 없이 되는지 확인 |
-| `restore` `error`: 시간 초과 | 원격 저장소가 응답하지 않는다. 네트워크·서버 확인, 필요하면 `restore`의 `timeout`을 늘린다 |
+| `restore` `error`: 시간 초과 | 원격 저장소가 응답하지 않거나, **S3 키가 틀렸다**(restic은 S3 인증 실패도 계속 재시도해서 시간 제한까지 기다린다). 네트워크·서버·키(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)를 확인한다 |
+| `restore` `error`: `PutObject: Access Denied` (S3) | 읽기 전용 키다. `repository.read_only: true` |
 | (macOS) Docker가 실행 디렉터리를 볼 수 없음 | `export WETRUN_WORKDIR=~/.cache/wetrun`. macOS의 Docker는 홈 폴더 밖을 빈 폴더로 마운트한다 |
 
 ## 9. 한계 (v0.1)
@@ -193,4 +196,4 @@ repository:
 - 일반 사용자로 복원하면 파일 소유자가 복원한 사용자로 바뀐다. DB 데이터 폴더를 그대로 백업하는 서비스는 root로 실행해야 할 수 있다 (Immich는 덤프로 복원해서 괜찮다).
 - 사진이 아주 많으면 정해진 시간 안에서 일부만 내려받아 확인한다. 확인한 수와 놓칠 수 있는 손상 비율은 리포트에 남는다.
 - 예약 실행이 아예 돌지 않은 경우는 알리지 못한다 (6절).
-- 원격 저장소는 sftp로만 시험했다. s3·rest 등은 restic이 지원하지만 직접 확인하지 않았다.
+- 원격 저장소는 sftp, S3 호환(SeaweedFS), restic REST 서버로 시험했다. AWS S3·Backblaze B2 같은 실제 클라우드는 같은 S3 방식이지만 직접 확인하지 않았다.
