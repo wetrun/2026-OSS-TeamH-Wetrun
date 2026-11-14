@@ -18,7 +18,7 @@ from pathlib import Path
 
 import wetrun
 from wetrun import isolation as iso
-from wetrun import workflow
+from wetrun import report, workflow
 from wetrun.contract import CHECK_EXIT_STATUS, CHECK_TIMEOUT_GRACE_S, RunResult, Status, StepResult
 from wetrun.restic import Restic, ResticError
 
@@ -27,7 +27,6 @@ CHECK_IMAGE = "python:3.12-slim"
 WORK_BASE = Path(os.environ.get("WETRUN_WORKDIR", "/var/tmp/wetrun"))
 STDERR_LINES = 20
 NOBODY = 65534
-MASK = "***"
 
 
 class _Run:
@@ -369,10 +368,10 @@ def _secrets(obj) -> set[str]:
 
 
 def _mask(result: StepResult, secrets: set[str]) -> StepResult:
-    text = json.dumps([result.message, result.evidence], ensure_ascii=False)
-    for s in sorted(secrets, key=len, reverse=True):
-        text = text.replace(json.dumps(s)[1:-1], MASK)
-    result.message, result.evidence = json.loads(text)
+    """글자 값만 가린다. 숫자·키 구조는 그대로 둔다 (#25: 비밀 값이 숫자 일부여도 깨지지 않게)."""
+    ordered = sorted({s for s in secrets if s}, key=len, reverse=True)
+    result.message = report.mask_text(result.message, ordered)
+    result.evidence = report.mask_text(result.evidence, ordered)
     return result
 
 
