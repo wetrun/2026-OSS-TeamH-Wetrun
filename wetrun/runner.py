@@ -26,6 +26,7 @@ CHECK_IMAGE = "python:3.12-slim"
 # 실행 디렉터리를 만들 곳. 복원한 데이터가 들어가므로 공간이 넉넉한 곳으로 바꿀 수 있다
 WORK_BASE = Path(os.environ.get("WETRUN_WORKDIR", "/var/tmp/wetrun"))
 STDERR_LINES = 20
+STATE_TIMEOUT_S = 30  # 컨테이너 상태 조회가 이보다 오래 걸리면 docker가 응답하지 않는 것으로 본다
 NOBODY = 65534
 
 
@@ -115,18 +116,26 @@ class _Run:
             except iso.IsolationError as e:
                 return Status.ERROR, "compose 설정을 쓸 수 없음", {"reason": str(e)}
         services = step.get("services", [])
-        args = ["up", "-d", "--wait", "--wait-timeout", str(step["timeout"]), *services]
+        # 마감은 `--wait-timeout`(Compose 2.17 이상에만 있음) 대신 프로세스 시간 제한으로 건다.
+        # 마감에 걸리면 컨테이너 상태로 판정한다
         try:
-            r = self.compose(*args, timeout=step["timeout"] + CHECK_TIMEOUT_GRACE_S)
-        except subprocess.TimeoutExpired:
-            return Status.ERROR, "docker compose가 응답하지 않음", {}
+            r = self.compose("up", "-d", "--wait", *services, timeout=step["timeout"])
+            code, stderr = r.returncode, r.stderr
+        except subprocess.TimeoutExpired as e:
+            code, stderr = None, e.stderr or ""
+            stderr = stderr.decode(errors="replace") if isinstance(stderr, bytes) else stderr
         states = self._states()
         self._record_images()
-        if r.returncode == 0:
+        healthy = bool(states) and all(
+            s["state"] == "running" and s["health"] in ("healthy", "") for s in states
+        )
+        if code == 0 or (code is None and healthy):
             return Status.PASS, "서비스 기동", {"containers": states}
-        evidence = {"exit_code": r.returncode, "stderr": _tail(r.stderr), "containers": states}
-        if not states:  # 컨테이너를 만들지도 못함: 이미지 없음 등 환경 문제
+        evidence = {"exit_code": code, "stderr": _tail(stderr), "containers": states}
+        if not states:  # 컨테이너를 만들지도 못함: 이미지 없음, docker 무응답 등 환경 문제
             return Status.ERROR, "컨테이너를 만들지 못함", evidence
+        if code is None:
+            return Status.FAIL, f"{step['timeout']}초 안에 정상 상태가 되지 못함", evidence
         return Status.FAIL, "서비스가 정상 상태가 되지 못함", evidence
 
     def exec(self, step: dict) -> tuple[Status, str, dict]:
@@ -208,7 +217,10 @@ class _Run:
     def _states(self) -> list[dict]:
         if self.compose_file is None:
             return []
-        r = self.compose("ps", "-a", "--format", "json")
+        try:
+            r = self.compose("ps", "-a", "--format", "json", timeout=STATE_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            return []  # docker가 응답하지 않음. 호출한 쪽에서 컨테이너 없음(error)으로 다룬다
         rows = []
         for line in r.stdout.splitlines():
             line = line.strip()

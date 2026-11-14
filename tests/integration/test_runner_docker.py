@@ -153,3 +153,34 @@ def test_oom_is_error_not_fail(tmp_path, monkeypatch):
     step = result.steps[0]
     assert step.status == Status.ERROR and "메모리" in step.message, step
     assert not any(leftovers(result).values())
+
+
+SLOW = """
+services:
+  slow:
+    image: alpine:3
+    command: ["sleep", "300"]
+    healthcheck:
+      test: ["CMD", "false"]
+      interval: 1s
+      start_period: 300s
+"""
+
+
+def test_service_not_healthy_by_deadline_is_fail(tmp_path, monkeypatch):
+    """마감까지 healthy가 되지 못한 서비스는 복구 문제(fail)다. Compose 버전과 상관없이."""
+    if "WETRUN_WORKDIR" not in os.environ:
+        if not docker_sees(tmp_path):
+            pytest.skip("Docker가 임시 폴더를 볼 수 없음. 공유된 경로를 WETRUN_WORKDIR로 지정")
+        monkeypatch.setattr(runner, "WORK_BASE", tmp_path / "work")
+    (tmp_path / "c.yml").write_text(SLOW)
+    wf = tmp_path / "w.yaml"
+    wf.write_text(yaml.safe_dump({
+        "version": 1, "repository": {"path": "sftp:x"}, "snapshot": {"tag": "t"},
+        "compose": {"files": ["c.yml"]}, "steps": [{"use": "up", "timeout": 8}],
+    }))  # fmt: skip
+    result = runner.run(wf)
+    step = result.steps[0]
+    assert step.status == Status.FAIL and "8초 안에" in step.message, step
+    assert step.evidence["containers"][0]["health"] == "starting"
+    assert not any(leftovers(result).values())
