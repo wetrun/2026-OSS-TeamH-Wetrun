@@ -65,3 +65,11 @@ def test_sanitize_caps_memory_per_service():
     assert sanitize(config, "wetrun-x", "3g")["services"]["b"]["mem_limit"] == "3g"
     per = sanitize(config, "wetrun-x", {"a": "1g"})["services"]
     assert per["a"]["mem_limit"] == "1g" and per["b"]["mem_limit"] == "512m"
+
+
+def test_sanitize_drops_nulls_old_compose_cannot_read_back():
+    out = sanitize(
+        svc(command=None, entrypoint=None, environment={"A": None, "B": "1"}), "wetrun-x"
+    )
+    app = out["services"]["app"]
+    assert "command" not in app and "entrypoint" not in app and app["environment"] == {"B": "1"}

@@ -104,7 +104,9 @@ def sanitize(config: dict, project: str, mem_limit: str | dict | None = None) ->
     메모리 상한: `mem_limit`이 문자열이면 모든 서비스, 매핑이면 서비스별로 쓴다. 지정하지 않은
     서비스는 compose에 이미 있는 상한을 두고, 없으면 DEFAULT_MEM_LIMIT를 붙인다.
     """
-    c = json.loads(json.dumps(config))
+    # 오래된 Compose(2.16 등)는 config 출력에 `"command": null`처럼 빈 값을 넣고, 다시 읽을 때는
+    # 거부한다. 빈 값은 "지정하지 않음"과 같으므로 지운다
+    c = _drop_nulls(json.loads(json.dumps(config)))
     c["name"] = project
     per_service = mem_limit if isinstance(mem_limit, dict) else {}
     default = mem_limit if isinstance(mem_limit, str) else None
@@ -121,6 +123,14 @@ def sanitize(config: dict, project: str, mem_limit: str | dict | None = None) ->
     networks = c.get("networks") or {"default": {}}
     c["networks"] = {name: {**(spec or {}), "internal": True} for name, spec in networks.items()}
     return c
+
+
+def _drop_nulls(value):
+    if isinstance(value, dict):
+        return {k: _drop_nulls(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_drop_nulls(v) for v in value]
+    return value
 
 
 def prepare(
