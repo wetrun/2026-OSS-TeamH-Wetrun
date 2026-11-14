@@ -30,7 +30,7 @@ uv run wetrun run workflow.yaml           # 결과 JSON을 출력하고 종료 �
 
 ## 실제 Immich로 시험한 결과 (#13 코멘트)
 
-testenv 백업으로 끝까지 돌렸다. macOS + Colima, Immich v3.3.5, restic 0.19.1.
+testenv 백업으로 끝까지 돌렸다. macOS + Colima, Immich v3.3.5, restic 0.19.1. Linux에서도 같은 결과다(아래 알려진 한계).
 
 | 백업 | 결과 | 판정 단계 |
 |---|---|---|
@@ -62,9 +62,12 @@ testenv 백업으로 끝까지 돌렸다. macOS + Colima, Immich v3.3.5, restic 
   - Immich는 ML을 띄우지 않으면 약 35% 줄어든다 (#13).
 - **일반 사용자로 복원하면 파일 소유자가 유지되지 않는다.** 서비스가 root로 만든 파일도 오류 없이 복원되지만, 소유자는 복원한 사용자가 된다 (#20). DB 데이터 폴더를 그대로 백업하는 서비스는 소유자가 달라 뜨지 않을 수 있으니 root로 실행한다. 덤프로 복원하는 Immich는 문제없다.
 - **Linux 확인 (CI, ubuntu 러너):** 실행기 통합 시험, 검사 컨테이너의 파일 권한(#11), root로 실행할 때 검사 파일 소유자 변경, root 소유 파일 복원 (#17, #20)
-- **확인하지 못한 것**
-  - 실제 Immich를 Linux에서 끝까지 돌리기 (macOS + Colima에서만 돌림)
-  - 오래된 Compose에 `--wait-timeout`이 있는지
+- **실제 Linux 기기에서 확인 (Ubuntu 26.04, Docker 29.1, Compose 2.40.3, restic 0.18.0):**
+  - 전체 시험 통과
+  - testenv Immich를 켜 둔 채로 검증해도 충돌하지 않았다
+  - 사진 파일이 root 소유인 실제 백업도 결과가 macOS와 같았다: 정상 `pass`(53초), 덤프 손상·누락 `fail`
+  - 정리 후 남은 자원 없음
+- **확인하지 못한 것:** Compose 2.40보다 오래된 버전에 `--wait-timeout`이 있는지
 - **중복 실행 방지가 없다.** 실행마다 프로젝트 이름이 달라 겹쳐도 안전하다. 예약 실행을 만들 때 추가한다.
 - **오프라인:** `alpine:3`(Docker 확인·정리용)과 `python:3.12-slim`(검사용)을 미리 받아 둬야 한다.
 
