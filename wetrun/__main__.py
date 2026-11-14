@@ -1,11 +1,14 @@
 """wetrun CLI 진입점."""
 
 import argparse
+import fcntl
+import hashlib
 import os
 import sys
+import tempfile
 from pathlib import Path
 
-from wetrun import notify, report, runner
+from wetrun import notify, report, runner, schedule
 from wetrun.contract import EXIT_ERROR, EXIT_PASS, exit_code
 from wetrun.isolation import IsolationError
 from wetrun.workflow import WorkflowError, load
@@ -22,15 +25,31 @@ def main(argv: list[str] | None = None) -> int:
         prog="wetrun", description="백업으로 서비스를 실제로 복구해 보고 동작을 검사한다."
     )
     sub = parser.add_subparsers(dest="command", required=True)
+    commands = {}
     for name, help_text in COMMANDS.items():
-        sub.add_parser(name, help=help_text).add_argument("workflow", help="워크플로 YAML 경로")
+        commands[name] = sub.add_parser(name, help=help_text)
+        commands[name].add_argument("workflow", help="워크플로 YAML 경로")
+    commands["schedule"].add_argument("--at", default="03:30", help="매일 실행할 시각 HH:MM")
+    commands["schedule"].add_argument(
+        "--env-file", type=Path, help="비밀 값(KEY=VALUE) 파일. 본인만 읽을 수 있어야 함"
+    )
     args = parser.parse_args(argv)
     if args.command == "check-input":
         return check_input(Path(args.workflow))
     if args.command == "run":
         return run(Path(args.workflow))
-    print(f"wetrun {args.command}: 아직 구현되지 않음", file=sys.stderr)
-    return 2
+    return schedule_command(Path(args.workflow), args.at, args.env_file)
+
+
+def schedule_command(path: Path, at: str, env_file: Path | None) -> int:
+    try:
+        line = schedule.cron_line(path, at, env_file, report_dir().parent)
+    except schedule.ScheduleError as e:
+        print(f"wetrun schedule: {e}", file=sys.stderr)
+        return EXIT_ERROR
+    print("# crontab -e 로 아래 줄을 붙여 넣는다")
+    print(line)
+    return EXIT_PASS
 
 
 def check_input(path: Path) -> int:
@@ -46,6 +65,33 @@ def check_input(path: Path) -> int:
 
 
 def run(path: Path) -> int:
+    lock = _lock(path)
+    if lock is None:
+        print(f"wetrun run: 같은 워크플로가 이미 실행 중: {path}", file=sys.stderr)
+        return EXIT_ERROR
+    with lock:
+        return _run(path)
+
+
+def _lock(path: Path):
+    """워크플로별 잠금. 예약 실행이 겹치거나 손으로 동시에 돌려도 하나만 실행한다.
+
+    프로세스가 죽으면 운영체제가 잠금을 푼다. 잡지 못하면 None.
+    """
+    key = hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:16]
+    # 리포트 폴더에 문제가 있어도 잠금은 되도록 임시 폴더에 둔다. 사용자마다 따로
+    lock_dir = Path(tempfile.gettempdir()) / f"wetrun-locks-{os.getuid()}"
+    lock_dir.mkdir(mode=0o700, exist_ok=True)
+    f = open(lock_dir / f"{key}.lock", "w")  # noqa: SIM115 - 실행 내내 열어 둔다
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        f.close()
+        return None
+    return f
+
+
+def _run(path: Path) -> int:
     try:
         result = runner.run(path)
     except WorkflowError:

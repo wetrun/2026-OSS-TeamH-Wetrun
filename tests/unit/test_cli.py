@@ -1,6 +1,7 @@
 import subprocess
 import sys
 
+import pytest
 import yaml
 
 
@@ -88,3 +89,19 @@ def test_service_name():
 
     assert service_name(Path("profiles/svc/workflow.yaml")) == "svc"
     assert service_name(Path("/etc/wetrun/photos.yaml")) == "photos"
+
+
+def test_same_workflow_runs_only_once_at_a_time(monkeypatch, tmp_path, capsys):
+    from wetrun import __main__ as cli
+
+    monkeypatch.setenv("WETRUN_REPORT_DIR", str(tmp_path / "runs"))
+    path = tmp_path / "workflow.yaml"
+    path.write_text("")
+    held = cli._lock(path)  # 다른 실행이 잡고 있는 상태
+    assert held is not None
+    monkeypatch.setattr(cli, "_run", lambda p: pytest.fail("실행되면 안 됨"))
+    assert cli.main(["run", str(path)]) == 2
+    assert "이미 실행 중" in capsys.readouterr().err
+    held.close()
+    monkeypatch.setattr(cli, "_run", lambda p: 0)
+    assert cli.main(["run", str(path)]) == 0  # 풀리면 다시 실행된다
