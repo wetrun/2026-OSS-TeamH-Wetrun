@@ -12,18 +12,22 @@ from pathlib import Path
 
 import yaml
 
+from wetrun.notify import WHEN_CHOICES
+
 TOP_KEYS = {
     "version": True,
     "repository": True,
     "snapshot": True,
     "compose": True,
     "refs": False,
+    "notify": False,
     "steps": True,
 }  # 키 → 필수 여부
 SECTION_KEYS = {
     "repository": ({"path"}, {"password"}),
     "snapshot": ({"tag"}, {"select"}),
     "compose": ({"files"}, {"env_file", "env", "mem_limit"}),
+    "notify": ({"discord"}, {"when"}),
 }  # 섹션 → (필수, 선택)
 COMMON_KEYS = {"use", "name", "timeout", "required"}
 DEFAULT_TIMEOUT = 300
@@ -97,6 +101,9 @@ def load(path: Path) -> dict:
     if "refs" in wf:
         problems += _check_file("refs", base, wf["refs"])
 
+    if isinstance(wf.get("notify"), dict):
+        problems += _check_notify(wf["notify"])
+
     steps = wf.get("steps")
     if "steps" in wf and not (isinstance(steps, list) and steps):
         problems.append("steps: 비어 있지 않은 목록이어야 함")
@@ -146,9 +153,25 @@ def _check_steps(steps: list, base: Path) -> list[str]:
     return problems
 
 
+def _check_notify(n: dict) -> list[str]:
+    problems = []
+    if True in n:  # YAML은 `on:`을 true로 읽는다
+        problems.append("notify: `on` 대신 `when`을 쓴다 (YAML은 on을 true로 읽음)")
+    d = n.get("discord")
+    if "discord" in n and not (isinstance(d, str) and d.startswith("env:")):
+        # 웹훅 주소를 그대로 적으면 커밋되어 공개된다
+        problems.append("notify.discord: 웹훅 주소는 비밀 값이라 env:<변수>로만 쓸 수 있음")
+    if "when" in n:
+        when = [n["when"]] if isinstance(n["when"], str) else n["when"]
+        if not (isinstance(when, list) and when and all(w in WHEN_CHOICES for w in when)):
+            problems.append(f"notify.when: {', '.join(WHEN_CHOICES)} 중에서 골라야 함")
+    return problems
+
+
 def _check_keys(where: str, d: dict, required: set[str], allowed: set[str]) -> list[str]:
-    missing = [f"{where}{k}: 필수 키가 없음" for k in sorted(required - d.keys())]
-    unknown = [f"{where}{k}: 모르는 키" for k in sorted(d.keys() - allowed)]
+    # key=str: YAML은 `on:` 같은 키를 true로 읽어 글자 키와 섞일 수 있다
+    missing = [f"{where}{k}: 필수 키가 없음" for k in sorted(required - d.keys(), key=str)]
+    unknown = [f"{where}{k}: 모르는 키" for k in sorted(d.keys() - allowed, key=str)]
     return missing + unknown
 
 

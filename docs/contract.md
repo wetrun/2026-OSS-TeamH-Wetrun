@@ -144,4 +144,14 @@ steps:
 
 - 담는 내용: 실행 ID, 스냅샷 ID, 워크플로 해시, 이미지 digest, 단계별 `StepResult`, 정리 오류, 소요 시간
 - 리포트의 JSON·요약 형식은 검사·출력 담당이 정한다.
-- 리포트 저장 위치, 알림 설정(최상위 `notify:` 키), `refs` 경로 지정 방법은 별도 PR에서 정한다.
+- `wetrun run`은 요약을 출력하고 JSON 리포트를 `$WETRUN_REPORT_DIR/<실행 ID>.json`(기본 `~/.local/share/wetrun/runs/`, 0600)에 저장한다.
+  저장에 실패해도 판정과 종료 코드는 바뀌지 않는다 (경고만 출력).
+- 알림은 최상위 `notify:` 키로 켠다. 알림 실패도 판정을 바꾸지 않는다.
+
+```yaml
+notify:
+  discord: env:WETRUN_DISCORD_WEBHOOK   # 웹훅 주소는 비밀 값이라 env:로만 쓴다
+  when: [fail, error]                   # 기본값. pass·fail·error 중에서. `on`은 YAML이 true로 읽어서 쓰지 않는다
+```
+
+- 알림 첫 줄의 서비스 이름은 워크플로 파일에서 정한다: `<서비스>/workflow.yaml`이면 폴더 이름, 아니면 파일 이름.

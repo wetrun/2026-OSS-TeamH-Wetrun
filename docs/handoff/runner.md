@@ -21,12 +21,12 @@
 export RESTIC_PASSWORD=...                # 워크플로의 env: 참조 값
 export WETRUN_WORKDIR=~/.cache/wetrun     # 실행 디렉터리 위치 (기본 /var/tmp/wetrun)
 uv run wetrun check-input workflow.yaml   # 아무것도 띄우지 않고 입력만 검사
-uv run wetrun run workflow.yaml           # 결과 JSON을 출력하고 종료 코드 0/1/2/3
+uv run wetrun run workflow.yaml           # 요약을 출력하고 종료 코드 0/1/2/3
 ```
 
 - **실행 디렉터리:** 복원한 데이터가 들어가므로 공간이 넉넉한 곳으로 지정한다. 실행이 끝나면 지워진다.
 - **macOS:** Colima나 Docker Desktop은 공유하지 않은 경로를 마운트하면 오류 없이 빈 폴더를 넣는다. Colima는 기본으로 홈 폴더만 공유한다. 그래서 `WETRUN_WORKDIR`를 홈 아래로 지정한다. 지정하지 않으면 실행 전에 "Docker가 실행 디렉터리를 볼 수 없음"으로 멈춘다.
-- **결과 출력:** `report.py`가 생기기 전까지 결과(`RunResult`)를 JSON 그대로 출력한다.
+- **결과 출력:** 요약을 출력하고 JSON 리포트를 `$WETRUN_REPORT_DIR`(기본 `~/.local/share/wetrun/runs/`)에 저장한다. 알림은 `notify:` 설정이 있을 때만 (contract 5절).
 
 ## 실제 Immich로 시험한 결과 (#13 코멘트)
 

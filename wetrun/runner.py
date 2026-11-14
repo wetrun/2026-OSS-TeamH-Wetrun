@@ -283,14 +283,14 @@ def run(path: Path) -> RunResult:
         signal.signal(signal.SIGTERM, previous)
         cleanup_errors = iso.cleanup(ctx.project, ctx.run_dir)
 
-    secrets = _secrets(wf)
+    found = secrets(wf)
     return RunResult(
         run_id=ctx.run_id,
         snapshot_id=ctx.snapshot_id,
         workflow_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
         started_at=started,
         duration_s=round(time.monotonic() - t0, 1),
-        steps=[_mask(r, secrets) for r in results],
+        steps=[_mask(r, found) for r in results],
         images=ctx.images,
         cleanup_errors=cleanup_errors,
     )
@@ -356,12 +356,12 @@ def _result(step, status, message, evidence, duration) -> StepResult:
     )
 
 
-def _secrets(obj) -> set[str]:
+def secrets(obj) -> set[str]:
     """`env:`로 참조한 값. 결과에 섞여 있으면 가린다."""
     if isinstance(obj, dict):
-        return set().union(*map(_secrets, obj.values()))
+        return set().union(*map(secrets, obj.values()))
     if isinstance(obj, list):
-        return set().union(*map(_secrets, obj))
+        return set().union(*map(secrets, obj))
     if isinstance(obj, str) and obj.startswith("env:") and os.environ.get(obj[4:]):
         return {os.environ[obj[4:]]}
     return set()
