@@ -22,6 +22,8 @@ make lint test
 
 ## 사용
 
+설치부터 결과 읽기, 예약 실행, 알림, 자주 겪는 문제까지는 [docs/user-guide.md](docs/user-guide.md)에 있다.
+
 Linux와 Docker(Compose v2), restic 0.18 이상이 필요하다. 워크플로 예시는 [`profiles/immich/workflow.yaml`](profiles/immich/workflow.yaml),
 작성 규칙은 [docs/contract.md](docs/contract.md).
 
