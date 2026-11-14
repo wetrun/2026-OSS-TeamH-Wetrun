@@ -86,6 +86,10 @@ def test_healthy_backup_passes(setup):
     print(json.dumps([s.__dict__ for s in result.steps], ensure_ascii=False, default=str))
     assert [s.status for s in result.steps] == [Status.PASS] * 5
     assert result.snapshot_id and exit_code(result) == EXIT_PASS
+    # 실행 이력용 값 (계약 6절)
+    assert result.workflow_id and result.snapshot_time and result.warnings == []
+    assert result.memory_peak_bytes.get("web", 0) > 0
+    assert not any(s.timed_out for s in result.steps)
     assert not result.cleanup_errors and not any(leftovers(result).values())
 
 
@@ -182,5 +186,6 @@ def test_service_not_healthy_by_deadline_is_fail(tmp_path, monkeypatch):
     result = runner.run(wf)
     step = result.steps[0]
     assert step.status == Status.FAIL and "8초 안에" in step.message, step
+    assert step.timed_out  # 이력 계산에서 빼야 하는 표본
     assert step.evidence["containers"][0]["health"] == "starting"
     assert not any(leftovers(result).values())

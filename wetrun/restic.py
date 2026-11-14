@@ -30,6 +30,7 @@ class ResticError(Exception):
     def __init__(self, status: Status, message: str, evidence: dict | None = None):
         super().__init__(message)
         self.status, self.message, self.evidence = status, message, evidence or {}
+        self.timed_out = False
 
 
 class Restic:
@@ -86,7 +87,9 @@ class Restic:
         except FileNotFoundError as e:
             raise ResticError(Status.ERROR, "restic이 설치되어 있지 않음") from e
         except subprocess.TimeoutExpired as e:
-            raise ResticError(Status.ERROR, f"restic {args[0]} 시간 초과 ({timeout}초)") from e
+            err = ResticError(Status.ERROR, f"restic {args[0]} 시간 초과 ({timeout}초)")
+            err.timed_out = True
+            raise err from e
         if r.returncode == 0:
             return r
         evidence = {

@@ -2,7 +2,6 @@
 
 import argparse
 import fcntl
-import hashlib
 import os
 import sys
 import tempfile
@@ -78,7 +77,7 @@ def _lock(path: Path):
 
     프로세스가 죽으면 운영체제가 잠금을 푼다. 잡지 못하면 None.
     """
-    key = hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:16]
+    key = runner.workflow_id(path)
     # 리포트 폴더에 문제가 있어도 잠금은 되도록 임시 폴더에 둔다. 사용자마다 따로
     lock_dir = Path(tempfile.gettempdir()) / f"wetrun-locks-{os.getuid()}"
     lock_dir.mkdir(mode=0o700, exist_ok=True)
