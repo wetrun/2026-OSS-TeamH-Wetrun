@@ -97,20 +97,20 @@ def _mask(data: dict, secrets: Iterable[str]) -> dict:
     if not secrets:
         return data
     for step in data["steps"]:
-        step["message"] = _mask_text(step["message"], secrets)
-        step["evidence"] = _mask_text(step["evidence"], secrets)
-    data["cleanup_errors"] = _mask_text(data["cleanup_errors"], secrets)
+        step["message"] = mask_text(step["message"], secrets)
+        step["evidence"] = mask_text(step["evidence"], secrets)
+    data["cleanup_errors"] = mask_text(data["cleanup_errors"], secrets)
     return data
 
 
-def _mask_text(value, secrets: list[str]):
+def mask_text(value, secrets: list[str]):
     """글자(str)만 골라 가린다. 목록·매핑은 안으로 들어가고, 숫자·참거짓은 그대로 둔다."""
     if isinstance(value, str):
         for s in secrets:
             value = value.replace(s, MASK)
         return value
     if isinstance(value, dict):
-        return {_mask_text(k, secrets): _mask_text(v, secrets) for k, v in value.items()}
+        return {mask_text(k, secrets): mask_text(v, secrets) for k, v in value.items()}
     if isinstance(value, list):
-        return [_mask_text(v, secrets) for v in value]
+        return [mask_text(v, secrets) for v in value]
     return value

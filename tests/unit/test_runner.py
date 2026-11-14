@@ -29,3 +29,12 @@ def test_mask_hides_secrets_in_message_and_evidence():
     )
     _mask(r, {"hunter2"})
     assert "hunter2" not in json.dumps([r.message, r.evidence])
+
+
+def test_mask_keeps_numbers_when_secret_is_digits():
+    # #25: 숫자로만 된 비밀 값이 숫자 일부와 같아도 결과가 깨지지 않는다
+    r = StepResult(
+        "restore", "restore", Status.PASS, message="pw 5430", evidence={"bytes": 54305072}
+    )
+    _mask(r, {"5430"})
+    assert r.evidence == {"bytes": 54305072} and r.message == "pw ***"
