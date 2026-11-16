@@ -87,6 +87,7 @@ def test_rejects_bad_input(wf):
         "compose.mem_limit": lambda d: d["compose"].update(mem_limit=512),
         "snapshot.max_age_days": lambda d: d["snapshot"].update(max_age_days=0),
         "repository.read_only": lambda d: d["repository"].update(read_only="yes"),
+        "compose.project_dir": lambda d: d["compose"].update(project_dir="/srv/prod"),
     }
     for expected, edit in cases.items():
         assert expected in problems(wf, edit), expected
@@ -133,3 +134,8 @@ def test_repository_path_can_be_env_and_read_only(wf, monkeypatch):
     # 접속 정보가 든 원격 주소를 YAML에 쓰지 않도록 env:를 허용한다
     monkeypatch.setenv("WETRUN_TEST_REPO", "sftp:backup:/srv/repo")
     wf(lambda d: d["repository"].update(path="env:WETRUN_TEST_REPO", read_only=True))
+
+
+def test_compose_project_dir_inside_run_dir(wf):
+    wf(lambda d: d["compose"].update(project_dir="{restore}"))
+    wf(lambda d: d["compose"].update(project_dir="{restore}/srv/gitea"))

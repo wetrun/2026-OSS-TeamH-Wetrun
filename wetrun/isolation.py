@@ -183,13 +183,14 @@ def prepare(
     env_file: Path | None = None,
     env: dict[str, str] | None = None,
     mem_limit: str | dict | None = None,
+    project_dir: Path | None = None,
 ) -> Path:
     """원본 compose를 검사·변환해 `<run_dir>/compose.wetrun.json`으로 쓴다.
 
-    상대 경로는 run_dir 기준으로 풀린다. `env`는 보간 변수로, env_file보다 우선한다.
-    결과 파일에는 보간된 비밀 값이 들어갈 수 있어 0600으로 쓴다.
+    상대 경로는 project_dir(기본 run_dir) 기준으로 풀린다. `env`는 보간 변수로, env_file보다
+    우선한다. 결과 파일에는 보간된 비밀 값이 들어갈 수 있어 0600으로 쓴다.
     """
-    args = ["compose", "-p", project, "--project-directory", str(run_dir)]
+    args = ["compose", "-p", project, "--project-directory", str(project_dir or run_dir)]
     for f in compose_files:
         args += ["-f", str(f)]
     if env_file:

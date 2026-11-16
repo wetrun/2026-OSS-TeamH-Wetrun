@@ -74,8 +74,12 @@ def test_root_owned_files_restore_as_user(tmp_path):
     restic은 일반 사용자일 때 소유자 복원 실패를 오류로 보지 않는다. 대신 파일 소유자는
     복원한 사용자가 된다. Linux에서만 의미가 있다 (macOS Docker는 소유자를 바꿔 보여 준다).
     """
-    if os.getuid() == 0 or shutil.which("docker") is None:
-        pytest.skip("일반 사용자와 Docker 필요")
+    docker_ok = (
+        shutil.which("docker")
+        and subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+    )
+    if os.getuid() == 0 or not docker_ok:
+        pytest.skip("일반 사용자와 동작 중인 Docker 필요")
     src = tmp_path / "src"
     (src / "data").mkdir(parents=True)
     subprocess.run(

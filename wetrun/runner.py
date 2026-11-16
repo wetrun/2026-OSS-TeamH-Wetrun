@@ -105,11 +105,15 @@ class _Run:
     def up(self, step: dict) -> tuple[Status, str, dict]:
         if self.compose_file is None:
             c = self.wf["compose"]
+            # compose 안의 상대 경로(예: `./data:/data`)를 풀 기준 폴더. 백업을 compose 폴더에서
+            # 만들었다면 "{restore}"로 지정해야 복원한 데이터가 붙는다 (기본은 실행 디렉터리)
+            project_dir = Path(self.resolve(c.get("project_dir", "{run}")))
+            project_dir.mkdir(parents=True, exist_ok=True)
             env_file = None
             if "env_file" in c:
-                # compose의 `env_file: .env` 같은 상대 경로는 실행 디렉터리 기준으로 풀리므로
+                # compose의 `env_file: .env` 같은 상대 경로는 기준 폴더에서 풀리므로
                 # 같은 이름으로 복사해 둔다. 비밀 값이 있어 0600
-                env_file = self.run_dir / Path(c["env_file"]).name
+                env_file = project_dir / Path(c["env_file"]).name
                 _write_private_bytes(env_file, (self.base / c["env_file"]).read_bytes())
             try:
                 self.compose_file = iso.prepare(
@@ -119,6 +123,7 @@ class _Run:
                     env_file,
                     {k: str(v) for k, v in self.resolve(c.get("env", {})).items()},
                     c.get("mem_limit"),
+                    project_dir,
                 )
             except iso.IsolationError as e:
                 return Status.ERROR, "compose 설정을 쓸 수 없음", {"reason": str(e)}
