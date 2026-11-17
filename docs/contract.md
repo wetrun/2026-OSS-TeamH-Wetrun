@@ -99,6 +99,7 @@ steps:
 
 - 상대 경로(`compose.files`, `env_file`, `refs`, 로컬 `repository.path`, `{restore}`가 아닌 `stdin`)는 워크플로 파일 위치 기준이다.
 - `{restore}`, `{run}`으로 시작하는 경로는 복원 후에 생기므로 `check-input`이 확인하지 않는다.
+- compose 안의 상대 경로(`./data:/data` 등)는 `compose.project_dir`(기본 `{run}`) 기준으로 풀린다. 백업을 compose 폴더에서 만들었다면 `"{restore}"`로 지정해야 복원한 데이터가 붙는다. `{restore}`·`{run}`으로 시작해야 한다(실행 디렉터리 밖 금지).
 - `env_file`은 실행 디렉터리에 같은 이름으로 복사된다(0600). compose 안의 `env_file: .env` 같은 상대 경로가 실행 디렉터리 기준으로 풀리기 때문이다.
 - 격리 변환 규칙은 `isolation.violations()`·`sanitize()`가 기준이다. 실행 디렉터리 밖 bind 마운트는 거부하되, `/etc/localtime`·`/etc/timezone`은 읽기 전용일 때만 허용한다.
 - 다음도 거부한다: `driver_opts`나 기본(local)이 아닌 드라이버를 쓰는 이름 있는 볼륨(호스트 경로·NFS에 붙을 수 있음), `cap_add`, 보안 장치를 끄는 `security_opt`(`unconfined`, `label=disable`), `cgroup_parent`, 바깥 컨테이너의 `volumes_from`.

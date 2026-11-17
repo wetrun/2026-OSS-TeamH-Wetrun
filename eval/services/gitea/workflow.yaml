@@ -1,0 +1,44 @@
+# Gitea: SQLite, 데이터 폴더째 백업, 체크섬 API 없음 → script 검사
+version: 1
+repository: {path: restic-repo, password: env:RESTIC_PASSWORD}
+snapshot: {tag: gitea}
+compose: {files: [compose.yml], project_dir: "{restore}"}
+refs: refs.json
+steps:
+  - {use: restore}
+  - {use: up}
+  - {use: http, name: ready, url: "http://server:3000/api/healthz", timeout: 120}
+  - use: script
+    name: repo
+    image: python:3.12-slim
+    command:
+      - python
+      - -c
+      - |
+        import json, sys, hashlib, urllib.request, urllib.error
+        refs = json.load(open("/wetrun/refs.json")); tok = sys.argv[1]
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        def get(path):
+            req = urllib.request.Request("http://server:3000" + path, headers={"Authorization": "token " + tok})
+            return opener.open(req, timeout=20).read()
+        def out(status, msg, ev, code):
+            json.dump({"status": status, "message": msg, "evidence": ev}, open("/wetrun/out/result.json", "w"))
+            sys.exit(code)
+        repo, branch = refs["repo"], refs["branch"]
+        try:
+            head = json.loads(get(f"/api/v1/repos/{repo}/branches/{branch}"))["commit"]["id"]
+            bad = [n for n, s in refs["files"].items()
+                   if hashlib.sha1(get(f"/api/v1/repos/{repo}/raw/{n}?ref={branch}")).hexdigest() != s]
+        except urllib.error.HTTPError as e:
+            out("fail", f"HTTP {e.code}: 저장소나 파일이 없음", {"url": e.url}, 1)
+        except (TimeoutError, urllib.error.URLError) as e:
+            # 계약 2절: 마감까지 서비스가 응답하지 않으면 복구 문제(fail)
+            out("fail", f"서비스가 응답하지 않음: {type(e).__name__}", {}, 1)
+        except Exception as e:
+            out("error", f"검사 중 예외: {type(e).__name__}", {}, 2)
+        if head != refs["commit"]:
+            out("fail", "브랜치 최신 커밋이 다름", {"expected": refs["commit"], "actual": head}, 1)
+        if bad:
+            out("fail", "파일 내용이 다름", {"files": bad}, 1)
+        out("pass", "커밋 " + head[:8] + "와 파일 " + str(len(refs["files"])) + "개 일치", {}, 0)
+      - env:GITEA_TOKEN

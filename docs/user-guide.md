@@ -51,6 +51,15 @@ steps: ...                              # profiles/immich/workflow.yaml 참고
 
 **정답지(`refs.json`).** 사진이 실제로 맞는지는 원본을 내려받아 정답지의 해시와 대조해서 확인한다. testenv에서는 `make seed`가 만든다(`testenv/seed.py`). 운영 서비스용 정답지는 백업할 때 함께 만들어 백업 밖에 둔다.
 
+### 다른 서비스에 쓸 때
+
+Immich 말고도 Gitea(SQLite)와 Nextcloud(MariaDB)로 확인했다. 워크플로 예시는 [eval/services/](../eval/services/README.md)에 있다.
+
+- **compose가 데이터 경로를 `./data`처럼 직접 적는다면** `compose.project_dir: "{restore}"`를 쓴다. 안 쓰면 빈 폴더가 붙어서, 멀쩡한 백업이 `fail`로 나온다.
+- **복원 후 할 일**(파일 소유자 되돌리기, 유지보수 모드 해제 등)은 `exec` 단계로 넣는다.
+- **API가 파일 체크섬을 주지 않으면** `script` 검사를 쓴다. 이때 서비스가 응답하지 않는 경우(시간 초과)는 `fail`로 끝내야 한다. `error`로 끝내면 고장 난 백업을 놓친다.
+- 새 워크플로는 **정상 백업으로 먼저 `pass`가 나오는지** 확인한다. 설정이 틀려도 `fail`이 나올 수 있다.
+
 ## 3. 실행
 
 ```sh
