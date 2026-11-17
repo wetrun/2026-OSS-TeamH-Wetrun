@@ -17,6 +17,8 @@
 | 예약 실행(crontab 줄 생성), 중복 실행 방지 | `schedule.py`, `__main__.py` | 완료 (#31) |
 | 실행 이력: 값 기록, 오래된 스냅샷·느림 경고, `restore`·`exec` 시간 제한 자동 조정, 시작 전 메모리 확인 | `runner.py`, `report.load_history` | 완료 (#37, #40, #41) |
 | 원격 저장소: `env:` 주소, 읽기 전용(`--no-lock`), 복원 전 확인 시간 제한, ssh 비대화식 | `restic.py`, `runner.py` | 완료 (#44). sftp, S3 호환(SeaweedFS), REST 서버로 시험 |
+| 보안 점검: 격리 우회 설정 거부, 공용 임시 폴더 안전하게 쓰기 | `isolation.py`, `__main__.py` | 완료 (#46) |
+| 다른 서비스 지원: `compose.project_dir`(경로가 compose에 고정된 서비스), `compose.volumes`(이름 있는 볼륨) | `runner.py`, `isolation.py` | 완료 (#47, #48). Gitea·Nextcloud로 시험 |
 
 ## 실행 방법
 
@@ -101,6 +103,15 @@ desktop Linux에서 `profiles/immich/workflow.yaml`(`ref_files` 포함)로 돌�
 | DB 덤프 누락 | `fail` |
 
 cron과 같은 빈 환경에서 `wetrun schedule`이 만든 줄로도 통과했다.
+
+## 다른 서비스 (#47, #48)
+
+Immich 말고 Gitea(SQLite)와 Nextcloud(MariaDB, 호스트 폴더·이름 있는 볼륨 두 방식)로 확인했다. 정상 백업은 모두 `pass`, 고장 백업 8개는 모두 `fail`이었다. 재현 방법과 결과는 [eval/services/README.md](../../eval/services/README.md).
+
+- compose가 데이터 경로를 `./data`처럼 직접 적으면 `compose.project_dir: "{restore}"`
+- 데이터를 이름 있는 볼륨에 두면 `compose.volumes: {<볼륨>: "{restore}/..."}`
+- 둘 다 없으면 빈 폴더·볼륨이 붙어서 멀쩡한 백업이 `fail`로 나온다
+- 서비스별 복원 절차(파일 소유자 되돌리기 등)는 `exec`로, 체크섬 API가 없으면 `script` 검사로
 
 ## 다음 작업 (v0.1 이후)
 
