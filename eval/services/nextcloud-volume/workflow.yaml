@@ -21,9 +21,8 @@ steps:
   - {use: exec, name: fix-owner, service: app, command: [chown, -R, "www-data:www-data", /var/www/html]}
   # 백업할 때 켠 유지보수 모드를 끈다 (Nextcloud 공식 복원 절차)
   - {use: exec, name: maintenance-off, service: app, command: [su, -s, /bin/sh, www-data, -c, "php occ maintenance:mode --off"]}
-  # 검사 컨테이너는 http://app/ 으로 접속한다. 복원본에서만 이 주소를 허용 목록(trusted_domains)에 넣는다
-  - {use: exec, name: trust-app, service: app, command: [su, -s, /bin/sh, www-data, -c, "php occ config:system:set trusted_domains 9 --value=app"]}
-  - {use: http, name: ready, url: "http://app/status.php", timeout: 180}
+  # Nextcloud는 허용된 주소로 들어온 요청만 받는다. 설치할 때 허용한 localhost로 보낸다
+  - {use: http, name: ready, url: "http://app/status.php", headers: {Host: localhost}, timeout: 180}
   - use: script
     name: files
     image: python:3.12-slim
