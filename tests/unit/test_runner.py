@@ -71,3 +71,29 @@ def test_workflow_id_is_stable_per_path(tmp_path):
     a, b = tmp_path / "a.yaml", tmp_path / "b.yaml"
     assert workflow_id(a) == workflow_id(tmp_path / "." / "a.yaml") != workflow_id(b)
     assert len(workflow_id(a)) == 16
+
+
+def test_oom_detection_waits_for_late_flag_and_falls_back_to_137(monkeypatch):
+    """OOMKilled 표시가 늦게 기록돼도(CI에서 실제로 겪음) 메모리 부족을 fail로 오판하지 않는다."""
+    import subprocess
+
+    from wetrun import runner
+
+    def fake(inspect_outputs):
+        outs = iter(inspect_outputs)
+
+        def run(cmd, **kw):
+            out = "c1\n" if cmd[1] == "ps" else next(outs)
+            return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+
+        return run
+
+    ctx = object.__new__(runner._Run)
+    ctx.project = "wetrun-x"
+    monkeypatch.setattr(runner.time, "sleep", lambda s: None)
+    monkeypatch.setattr(subprocess, "run", fake(["/svc false 137", "/svc true 137"]))
+    assert ctx.oom_killed() == ["svc"]  # 다시 보니 표시됨
+    monkeypatch.setattr(subprocess, "run", fake(["/svc false 137"] * 10))
+    assert ctx.oom_killed() == ["svc"]  # 끝까지 표시 없어도 137이면 메모리 부족
+    monkeypatch.setattr(subprocess, "run", fake(["/svc false 1"]))
+    assert ctx.oom_killed() == []  # 보통 실패는 메모리 부족이 아님
