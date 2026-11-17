@@ -1,0 +1,28 @@
+# Nextcloud 공식 예시 형태: 데이터를 이름 있는 볼륨에 저장
+services:
+  db:
+    image: mariadb:11
+    restart: always
+    env_file: .env
+    environment: [MARIADB_DATABASE=nextcloud, MARIADB_USER=nextcloud]
+    volumes: [db:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 30
+  app:
+    image: nextcloud:30-apache
+    restart: always
+    env_file: .env
+    environment:
+      - MYSQL_HOST=db
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - NEXTCLOUD_ADMIN_USER=wetrun
+      - NEXTCLOUD_TRUSTED_DOMAINS=localhost 127.0.0.1
+    volumes: [nextcloud:/var/www/html]
+    ports: ["127.0.0.1:8082:80"]
+    depends_on: {db: {condition: service_healthy}}
+volumes:
+  nextcloud:
+  db:
