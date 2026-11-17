@@ -26,6 +26,12 @@ seed:
 backup:
 	testenv/backup.sh
 
+# 대용량 평가: make seed 뒤에 데이터셋 N개(JPEG 사진 + MP4 동영상)를 더 넣는다. 끝나면 make backup
+# N=295/1495/2995 → 샘플 5장과 합쳐 전체 300/1500/3000
+N ?= 295
+seed-dataset:
+	uv run python testenv/seed_dataset.py --count $(N)
+
 # 새로 clone한 뒤 이 한 줄로 Immich + 테스트 데이터 + 백업을 만든다
 env: env-up seed backup
 
@@ -35,4 +41,4 @@ env-down:
 env-clean:
 	testenv/down.sh --clean
 
-.PHONY: install fmt lint test env env-up seed backup env-down env-clean
+.PHONY: install fmt lint test env env-up seed seed-dataset backup env-down env-clean
