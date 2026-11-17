@@ -50,6 +50,35 @@ make env-clean YES=1   # 묻지 않고 삭제 (스크립트·반복 시험용)
 여러 번 실행해도 된다. 이미 있는 관리자·사진·앨범은 그대로 쓴다.
 asset id와 앨범 id는 환경마다 다르다. 파일 비교는 SHA-1로 한다.
 
+## 대용량 평가 데이터 (seed-dataset)
+
+복구·검사 시간이 데이터 개수에 따라 어떻게 늘어나는지 재기 위해 데이터셋 N개(JPEG 사진 + MP4 동영상)를 더 넣는다.
+휴대폰 사진·동영상의 형식·용량을 흉내 내서, 실제 크기 파일의 다운로드·복원 시간을 잴 수 있게 했다.
+
+```sh
+make env-up                 # Immich 서버 이미지가 있어야 한다 (그 안의 ffmpeg로 JPEG·MP4를 만든다)
+make seed                   # 관리자·샘플 5장·앨범 (seed-dataset은 이걸 하지 않는다)
+make seed-dataset N=295     # 데이터셋 295개 생성·업로드 + Immich 작업 대기 + refs.json에 추가 → 전체 300개
+make backup
+# 다음 단계: N=1495(전체 1500), N=2995(전체 3000). 이미 올린 파일은 duplicate로 건너뛰고 나머지만 올린다
+```
+
+| 항목 | 값 |
+|---|---|
+| 사진 | `dataset/v3/dataset-NNNNNN.jpg`. 4032x3024(1200만 화소) JPEG, 장당 약 2.7 / 3.7 / 5.2MB (품질 3단계를 번호로 정함) |
+| 동영상 | 50개 중 1개(49, 99, …번)가 `.mp4`. 1920x1080 30fps H.264, 16Mbps로 5~15초 → 약 10~30MB. 295개면 5개, 1495개면 29개, 2995개면 59개 |
+| 내용 | ffmpeg 테스트 화면(testsrc2) + 잡음. 파일마다 잡음이 달라 restic이 중복으로 합치지 못하고, 이미 압축된 형식이라 restic 압축으로도 줄지 않는다 |
+| 같은 바이트 | Immich 서버 이미지(`IMMICH_VERSION`) 안의 ffmpeg를 `docker run`으로 쓴다. 버전이 같으면 누가 만들어도 같은 파일이다 |
+| 용량 | 평균 약 3.9MB/개: 295개 약 1.2GB, 1495개 약 6GB, 2995개 약 12GB. 디스크는 원본·library·restic·복구본으로 약 4배 필요 |
+| 생성 시간 | 사진 100장에 약 15~20초, 동영상 1개에 약 5~10초 (PC마다 다름). 한 번 만든 파일은 다시 만들지 않는다 |
+| 촬영 시각 | 2025-01-01T00:00Z + 번호 x 1분 (샘플 5장과 겹치지 않음) |
+| `refs.json` | 샘플 5장 뒤에 데이터셋 항목이 붙고, `dataset`(버전·개수·동영상 수·바이트)이 기록된다. 다시 실행하면 데이터셋 항목만 새로 바꾼다. 검사 결과의 파일 수는 샘플 5장을 더한 값이다 |
+| 대기 | 업로드 뒤 `GET /api/queues`의 남은 작업이 0이 될 때까지 기다린다 (기본 최대 6시간, `--queue-timeout`). 동영상 트랜스코딩 때문에 사진만 있을 때보다 오래 걸린다 |
+
+옵션은 `uv run python testenv/seed_dataset.py --help`에서 본다 (`--video-every`, `--workers`, `--no-wait`).
+생성 방식이 바뀌면 `dataset/` 아래 폴더 이름(`v3`)을 바꾼다. 예전 방식으로 올린 Immich에 이어서 넣지 말고 `make env-clean YES=1`부터 다시 한다.
+`dataset/`은 커밋하지 않는다 (`.gitignore`).
+
 ## backup이 만드는 백업
 
 | 항목 | 값 |
@@ -79,12 +108,14 @@ restic restore latest --target /tmp/restore-test   # /tmp/restore-test/data/... 
 | `up.sh`, `down.sh` | O | 실행·정리 스크립트 |
 | `common.sh` | O | 스크립트 공통 함수 (도구 확인, `.env` 읽기) |
 | `seed.py` | O | 테스트 데이터 넣기, `refs.json` 작성 (표준 라이브러리만 사용) |
+| `seed_dataset.py` | O | 대용량 평가용 JPEG·MP4 N개 추가 (`make seed-dataset N=...`) |
 | `backup.sh` | O | DB 덤프와 restic 백업 |
 | `.env` | X | 실제 설정 (`.env.example` 복사본) |
 | `docker-compose.yml` | X | Immich 공식 파일. `up.sh`가 `.env`의 `IMMICH_VERSION`으로 준비한다 |
 | `docker-compose.<버전>.yml` | X | 받아 둔 공식 파일. 같은 버전이면 다시 받지 않아 네트워크 없이도 `env-up`이 된다 |
 | `data/` | X | 사진(`library/`), DB(`postgres/`), 백업 |
 | `samples/`, `refs.json` | X | seed.py가 만드는 샘플 사진과 정답지 |
+| `dataset/` | X | seed_dataset.py가 만드는 대용량 평가용 사진·동영상 |
 
 Immich 버전은 `.env.example`의 `IMMICH_VERSION`(현재 v3.3.5)으로 고정한다.
 버전을 바꾸려면 팀과 합의한 뒤 이 값만 고친다.

@@ -152,8 +152,8 @@ class Immich:
             time.sleep(3)
         sys.exit(f"error: Immich did not respond within {timeout}s. Did you run make env-up?")
 
-    def upload(self, path: Path, taken_at: str) -> tuple[str, str]:
-        """사진 1장을 올리고 (asset id, created|duplicate)를 돌려준다."""
+    def upload(self, path: Path, taken_at: str, content_type: str = "image/png") -> tuple[str, str]:
+        """파일 1개를 올리고 (asset id, created|duplicate)를 돌려준다."""
         boundary = uuid.uuid4().hex
         fields = {
             "fileCreatedAt": taken_at,
@@ -169,7 +169,7 @@ class Immich:
         parts.append(
             f"--{boundary}\r\n"
             f'Content-Disposition: form-data; name="assetData"; filename="{path.name}"\r\n'
-            "Content-Type: image/png\r\n\r\n".encode()
+            f"Content-Type: {content_type}\r\n\r\n".encode()
             + path.read_bytes()
             + b"\r\n"
         )
