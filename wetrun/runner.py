@@ -28,6 +28,7 @@ CHECK_IMAGE = "python:3.12-slim"
 WORK_BASE = Path(os.environ.get("WETRUN_WORKDIR", "/var/tmp/wetrun"))
 STDERR_LINES = 20
 STATE_TIMEOUT_S = 30  # 컨테이너 상태 조회가 이보다 오래 걸리면 docker가 응답하지 않는 것으로 본다
+OOM_RECHECKS = 5  # OOMKilled 표시가 늦게 기록될 때 다시 볼 횟수 (1초 간격)
 NOBODY = 65534
 
 
@@ -264,13 +265,24 @@ class _Run:
             ids += r.stdout.split()
         if not ids:
             return []
-        r = subprocess.run(
-            ["docker", "inspect", "-f", "{{.Name}} {{.State.OOMKilled}}", *sorted(set(ids))],
-            capture_output=True, text=True, check=False,
-        )  # fmt: skip
-        return [
-            line.split()[0].lstrip("/") for line in r.stdout.splitlines() if line.endswith(" true")
-        ]
+        # 컨테이너가 죽은 직후에는 Docker가 OOMKilled를 아직 기록하지 않았을 수 있다
+        # (CI에서 실제로 가끔 false). 강제 종료(137)인데 표시가 없으면 잠깐 기다렸다 다시 본다.
+        # 끝까지 없어도 137이면 메모리 부족으로 본다:
+        # 단계 실행 중에 Wetrun이 서비스 컨테이너를 강제로 죽이는 일은 없다
+        for attempt in range(OOM_RECHECKS + 1):
+            r = subprocess.run(
+                ["docker", "inspect", "-f", "{{.Name}} {{.State.OOMKilled}} {{.State.ExitCode}}",
+                 *sorted(set(ids))],
+                capture_output=True, text=True, check=False,
+            )  # fmt: skip
+            rows = [line.split() for line in r.stdout.splitlines() if len(line.split()) == 3]
+            oom = [n.lstrip("/") for n, flag, _ in rows if flag == "true"]
+            killed = [n.lstrip("/") for n, flag, code in rows if flag != "true" and code == "137"]
+            if oom or not killed:
+                return oom
+            if attempt < OOM_RECHECKS:
+                time.sleep(1)
+        return killed
 
     def _record_images(self) -> None:
         r = self.compose("images", "--format", "json")
