@@ -6,6 +6,8 @@ step.json 키:
     url            (필수) 요청할 주소. 예: http://<서비스>:<포트>/<경로>
     expect_status  기대하는 상태 코드. 기본 200 (예: 로그인 없이 막히는지 보려면 401)
     interval       다시 시도하는 간격(초). 0보다 커야 함. 기본 2
+    headers        요청 헤더. 예: {Host: localhost} (접속 주소를 검사하는 서비스).
+                   값에 비밀 값을 쓸 수 있고(env:), evidence에는 남기지 않는다
     timeout        단계 공통 키. 기본 300. 이 시간 동안 기다린다
 
 판정:
@@ -27,7 +29,7 @@ from wetrun.steps._common import deadline, run
 
 # 이 검사의 키 (계약 3절 "검사별 키"). check-input이 공통 키를 뺀 나머지를 이것과 비교한다.
 REQUIRED_KEYS = {"url"}
-OPTIONAL_KEYS = {"expect_status", "interval"}
+OPTIONAL_KEYS = {"expect_status", "interval", "headers"}
 
 REQUEST_TIMEOUT_S = 10  # 요청 하나가 기다리는 최대 시간
 
@@ -44,6 +46,11 @@ def check(step: dict) -> tuple[Status, str, dict]:
     interval = float(step.get("interval", 2))
     if interval <= 0:
         return Status.ERROR, "interval은 0보다 커야 함", {}
+    headers = step.get("headers") or {}
+    if not isinstance(headers, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in headers.items()
+    ):
+        return Status.ERROR, "headers는 {이름: 값} 문자열 매핑이어야 함", {}
     end = deadline(step)
     started = time.monotonic()
 
@@ -51,7 +58,7 @@ def check(step: dict) -> tuple[Status, str, dict]:
     last = None  # 마지막으로 받은 상태 코드 또는 연결 실패 종류
     while (remaining := end - time.monotonic()) > 0:
         attempts += 1
-        last = probe(url, min(REQUEST_TIMEOUT_S, remaining))
+        last = probe(url, min(REQUEST_TIMEOUT_S, remaining), headers)
         if last == expect:
             evidence = _evidence(url, expect, last, attempts, started)
             return Status.PASS, f"{expect} 응답 ({attempts}번째 시도)", evidence
@@ -64,14 +71,15 @@ def check(step: dict) -> tuple[Status, str, dict]:
     return Status.FAIL, f"마감까지 {expect} 응답 없음 (마지막: {last})", evidence
 
 
-def probe(url: str, timeout: float) -> int | str:
+def probe(url: str, timeout: float, headers: dict | None = None) -> int | str:
     """요청을 한 번 보내 상태 코드(int)나 연결 실패 종류(str)를 돌려준다.
 
     urllib는 4xx·5xx 응답을 예외(HTTPError)로 던진다. 브라우저 fetch와 다르다.
     HTTPError는 URLError의 하위 클래스라서 반드시 먼저 잡아야 한다.
     """
     try:
-        with _opener.open(url, timeout=timeout) as resp:
+        req = urllib.request.Request(url, headers=headers or {})
+        with _opener.open(req, timeout=timeout) as resp:
             return resp.status
     except urllib.error.HTTPError as err:
         err.close()

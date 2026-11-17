@@ -10,7 +10,7 @@ def fake_probe(*responses):
     """probe 대신 정해진 응답을 차례로 돌려준다 (마지막 응답은 계속 반복)."""
     queue = list(responses)
 
-    def probe(url, timeout):
+    def probe(url, timeout, headers=None):
         return queue.pop(0) if len(queue) > 1 else queue[0]
 
     return probe
@@ -116,3 +116,34 @@ def test_unwritable_evidence_ends_as_error(tmp_path, monkeypatch):
 def test_missing_step_json_is_error(tmp_path, monkeypatch):
     monkeypatch.setenv("WETRUN_DIR", str(tmp_path))
     assert run(lambda step: (Status.PASS, "ok", {})) == 2
+
+
+def test_headers_are_sent(monkeypatch):
+    """접속 주소를 검사하는 서비스(Nextcloud 등)는 Host 헤더가 맞아야 응답한다."""
+    import http.server as httpserver  # 검사 모듈 이름(http)을 가리지 않게
+    import threading
+
+    seen = {}
+
+    class Handler(httpserver.BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen["host"] = self.headers.get("Host")
+            self.send_response(200 if seen["host"] == "localhost" else 400)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = httpserver.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_port}/status"
+    try:
+        assert http.check({"url": url, "timeout": 3, "interval": 0.2})[0] == Status.FAIL
+        status, _, evidence = http.check(
+            {"url": url, "timeout": 3, "headers": {"Host": "localhost"}}
+        )
+        assert status == Status.PASS and seen["host"] == "localhost"
+        assert "headers" not in evidence  # 헤더 값(토큰 등)은 남기지 않는다
+        assert http.check({"url": url, "headers": {"Host": 1}})[0] == Status.ERROR
+    finally:
+        server.shutdown()

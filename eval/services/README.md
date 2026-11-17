@@ -42,10 +42,9 @@ Gitea 공식 compose는 `./data:/data`처럼 상대 경로를 쓴다. Wetrun은 
 Nextcloud는 복원 후에 해야 할 일이 있었다. 모두 `exec` 단계로 처리했고, 실행기 코드는 바꾸지 않았다.
 - **파일 소유자를 www-data로 되돌림:** 일반 사용자로 복원하면 소유자가 바뀐다(#20). 컨테이너 안 root로 `chown`한다.
 - **유지보수 모드 해제:** 공식 백업 절차대로 유지보수 모드를 켠 채 백업했기 때문이다.
-- **검사 주소를 허용 목록에 추가:** 아래 3번
 
-### 3. 내장 `http` 검사는 요청 헤더를 바꿀 수 없다 (한계)
-Nextcloud는 허용된 주소(trusted domains)로 들어온 요청만 받는다. 검사 컨테이너의 주소(`http://app/`)는 목록에 없어서 `ready`가 HTTP 400으로 **`fail`**이 났다. 이것도 백업 문제가 아니다. 복원본에서만 `occ config:system:set trusted_domains`로 주소를 추가해 해결했다. `http` 검사에 `headers` 설정이 있으면 더 간단하다(검증 담당 검토 사항).
+### 3. 내장 `http` 검사가 요청 헤더를 바꿀 수 없었다 → 고침 (#50)
+Nextcloud는 허용된 주소(trusted domains)로 들어온 요청만 받는다. 검사 컨테이너의 주소(`http://app/`)는 목록에 없어서 `ready`가 HTTP 400으로 **`fail`**이 났다. 이것도 백업 문제가 아니다. 처음에는 복원본에서만 `occ config:system:set trusted_domains`로 주소를 추가하는 `exec` 단계로 우회했다. 이후 `http` 검사에 `headers` 설정을 넣어, `headers: {Host: localhost}`만으로 통과하게 했다. 우회용 `exec` 단계는 지웠다.
 
 ### 4. `script` 검사는 계약을 직접 지켜야 한다
 처음 쓴 Gitea 검사 스크립트는 서비스가 응답하지 않을 때(시간 초과)를 "검사 중 예외"(`error`)로 처리했다. 계약상 **마감까지 서비스가 응답하지 않으면 `fail`**이다. 그래서 Git 객체 손상이 `error`로 나왔다. 스크립트를 고친 뒤에는 `fail`이 나왔다. 내장 검사는 `_common.py`가 이 규칙을 지켜 주지만, 사용자 정의 검사는 작성자가 지켜야 한다.

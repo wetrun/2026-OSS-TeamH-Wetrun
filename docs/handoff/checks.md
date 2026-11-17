@@ -142,6 +142,9 @@ notify:
 
 ## 알려진 한계
 
+- (해결) `http` 검사는 `headers`로 요청 헤더를 지정한다 (#50, Nextcloud 접속 주소 검사 대응). 헤더 값은 evidence에 남기지 않는다
+
+
 - ref_files는 앨범의 파일 수만 비교한다 (어떤 파일이 들었는지는 보지 않음)
 - 사진·동영상 등 종류별 최소 1개 샘플링은 없다 (testenv는 PNG뿐)
 - `profiles/immich/workflow.yaml`은 testenv 생성물(`../../testenv/`)을 가리킨다. 다른 Immich에는 경로를 바꿔 쓴다
