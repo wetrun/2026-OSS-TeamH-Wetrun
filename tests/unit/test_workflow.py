@@ -88,6 +88,7 @@ def test_rejects_bad_input(wf):
         "snapshot.max_age_days": lambda d: d["snapshot"].update(max_age_days=0),
         "repository.read_only": lambda d: d["repository"].update(read_only="yes"),
         "compose.project_dir": lambda d: d["compose"].update(project_dir="/srv/prod"),
+        "compose.volumes": lambda d: d["compose"].update(volumes={"data": "/srv/prod"}),
     }
     for expected, edit in cases.items():
         assert expected in problems(wf, edit), expected
@@ -139,3 +140,7 @@ def test_repository_path_can_be_env_and_read_only(wf, monkeypatch):
 def test_compose_project_dir_inside_run_dir(wf):
     wf(lambda d: d["compose"].update(project_dir="{restore}"))
     wf(lambda d: d["compose"].update(project_dir="{restore}/srv/gitea"))
+
+
+def test_compose_volumes_map_to_restored_paths(wf):
+    wf(lambda d: d["compose"].update(volumes={"nextcloud": "{restore}/src/html"}))

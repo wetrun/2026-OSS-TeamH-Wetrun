@@ -168,6 +168,34 @@ def sanitize(config: dict, project: str, mem_limit: str | dict | None = None) ->
     return c
 
 
+def bind_volumes(config: dict, paths: dict[str, Path]) -> dict:
+    """이름 있는 볼륨 자리에 복원한 폴더를 붙인다 (워크플로의 compose.volumes).
+
+    Wetrun은 볼륨을 빈 것으로 새로 만들기 때문에, 데이터를 볼륨에 두는 서비스는 복원한 데이터를
+    보지 못한다. 지정한 볼륨을 쓰는 마운트를 그 폴더의 bind 마운트로 바꾼다. 바꾼 경로도
+    violations()가 실행 디렉터리 안인지 검사한다.
+    """
+    declared = config.get("volumes") or {}
+    if unknown := sorted(set(paths) - set(declared)):
+        raise IsolationError(f"compose에 없는 볼륨: {', '.join(unknown)}")
+    for name, path in paths.items():
+        if not path.is_dir():
+            raise IsolationError(
+                f"볼륨 {name}에 붙일 폴더가 없음 (백업에 없거나 경로가 틀림): {path}"
+            )
+    for spec in (config.get("services") or {}).values():
+        for i, mount in enumerate(spec.get("volumes") or []):
+            if mount.get("type") == "volume" and mount.get("source") in paths:
+                spec["volumes"][i] = {
+                    "type": "bind",
+                    "source": str(paths[mount["source"]]),
+                    "target": mount["target"],
+                    **({"read_only": True} if mount.get("read_only") else {}),
+                }
+    config["volumes"] = {k: v for k, v in declared.items() if k not in paths}
+    return config
+
+
 def _drop_nulls(value):
     if isinstance(value, dict):
         return {k: _drop_nulls(v) for k, v in value.items() if v is not None}
@@ -184,6 +212,7 @@ def prepare(
     env: dict[str, str] | None = None,
     mem_limit: str | dict | None = None,
     project_dir: Path | None = None,
+    volume_paths: dict[str, Path] | None = None,
 ) -> Path:
     """원본 compose를 검사·변환해 `<run_dir>/compose.wetrun.json`으로 쓴다.
 
@@ -198,7 +227,7 @@ def prepare(
     r = _docker(*args, "config", "--format", "json", env={**os.environ, **(env or {})})
     if r.returncode:
         raise IsolationError(f"compose 설정을 해석하지 못함: {r.stderr.strip()}")
-    config = json.loads(r.stdout)
+    config = bind_volumes(json.loads(r.stdout), volume_paths or {})
     if bad := violations(config, run_dir):
         raise IsolationError("격리 규칙 위반:\n- " + "\n- ".join(bad))
     out = run_dir / "compose.wetrun.json"

@@ -127,3 +127,34 @@ def test_run_base_is_created_private_even_with_permissive_umask(tmp_path):
         os.umask(old)
     assert (tmp_path / "base").stat().st_mode & 0o777 == 0o700
     assert run_dir.stat().st_mode & 0o777 == 0o700
+
+
+def test_bind_volumes_replaces_named_volume_with_restored_dir(tmp_path):
+    import pytest
+
+    from wetrun.isolation import IsolationError, bind_volumes
+
+    restored = tmp_path / "restore" / "html"
+    restored.mkdir(parents=True)
+    config = {
+        "services": {
+            "app": {
+                "image": "x",
+                "volumes": [{"type": "volume", "source": "data", "target": "/d"}],
+            },
+            "db": {"image": "x", "volumes": [{"type": "volume", "source": "db", "target": "/db"}]},
+        },
+        "volumes": {"data": {}, "db": {}},
+    }
+    out = bind_volumes(config, {"data": restored})
+    assert out["services"]["app"]["volumes"] == [
+        {"type": "bind", "source": str(restored), "target": "/d"}
+    ]
+    assert (
+        out["services"]["db"]["volumes"][0]["type"] == "volume"
+    )  # 지정 안 한 볼륨은 빈 볼륨 그대로
+    assert out["volumes"] == {"db": {}}
+    with pytest.raises(IsolationError, match="없는 볼륨"):
+        bind_volumes(config, {"typo": restored})
+    with pytest.raises(IsolationError, match="붙일 폴더가 없음"):
+        bind_volumes(config, {"db": tmp_path / "missing"})
