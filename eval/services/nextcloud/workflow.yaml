@@ -1,0 +1,58 @@
+# Nextcloud: MariaDB 덤프 + www-data 소유 파일, 접속 주소 검사(trusted domains) → script 검사
+version: 1
+repository: {path: restic-repo, password: env:RESTIC_PASSWORD}
+snapshot: {tag: nextcloud}
+compose:
+  files: [compose.yml]
+  env_file: .env
+  project_dir: "{restore}/src"        # 백업 경로가 /src/html, /src/backup
+refs: refs.json
+steps:
+  - {use: restore}
+  - {use: up, name: up-db, services: [db]}
+  - use: exec
+    name: restore-db
+    service: db
+    command: [sh, -c, "mariadb -u root -p\"$MARIADB_ROOT_PASSWORD\" nextcloud"]
+    stdin: "{restore}/src/backup/nextcloud.sql"
+    timeout: 300
+  - {use: up, services: [db, app]}
+  # 일반 사용자로 복원하면 파일 소유자가 바뀐다. 컨테이너 안(root)에서 www-data로 되돌린다
+  - {use: exec, name: fix-owner, service: app, command: [chown, -R, "www-data:www-data", /var/www/html]}
+  # 백업할 때 켠 유지보수 모드를 끈다 (Nextcloud 공식 복원 절차)
+  - {use: exec, name: maintenance-off, service: app, command: [su, -s, /bin/sh, www-data, -c, "php occ maintenance:mode --off"]}
+  # 검사 컨테이너는 http://app/ 으로 접속한다. 복원본에서만 이 주소를 허용 목록(trusted_domains)에 넣는다
+  - {use: exec, name: trust-app, service: app, command: [su, -s, /bin/sh, www-data, -c, "php occ config:system:set trusted_domains 9 --value=app"]}
+  - {use: http, name: ready, url: "http://app/status.php", timeout: 180}
+  - use: script
+    name: files
+    image: python:3.12-slim
+    command:
+      - python
+      - -c
+      - |
+        import base64, hashlib, json, sys, urllib.error, urllib.request
+        refs = json.load(open("/wetrun/refs.json"))
+        auth = base64.b64encode((refs["user"] + ":" + sys.argv[1]).encode()).decode()
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        def out(status, msg, ev, code):
+            json.dump({"status": status, "message": msg, "evidence": ev}, open("/wetrun/out/result.json", "w"))
+            sys.exit(code)
+        bad = []
+        try:
+            for name, sha in refs["files"].items():
+                req = urllib.request.Request(
+                    "http://app/remote.php/dav/files/" + refs["user"] + "/" + name,
+                    headers={"Authorization": "Basic " + auth, "Host": "localhost"})
+                if hashlib.sha1(opener.open(req, timeout=30).read()).hexdigest() != sha:
+                    bad.append(name)
+        except urllib.error.HTTPError as e:
+            out("fail", "HTTP " + str(e.code) + ": 파일을 받지 못함", {"url": e.url}, 1)
+        except (TimeoutError, urllib.error.URLError) as e:
+            out("fail", "서비스가 응답하지 않음: " + type(e).__name__, {}, 1)
+        except Exception as e:
+            out("error", "검사 중 예외: " + type(e).__name__, {}, 2)
+        if bad:
+            out("fail", "파일 내용이 다름", {"files": bad}, 1)
+        out("pass", "파일 " + str(len(refs["files"])) + "개 전부 원본과 일치", {}, 0)
+      - env:NEXTCLOUD_ADMIN_PASSWORD

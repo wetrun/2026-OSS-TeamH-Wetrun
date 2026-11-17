@@ -1,0 +1,27 @@
+# Nextcloud: MariaDB, 파일은 www-data(33) 소유, 데이터는 ./html (bind)
+services:
+  db:
+    image: mariadb:11
+    container_name: nextcloud-db
+    restart: always
+    env_file: .env
+    environment: [MARIADB_DATABASE=nextcloud, MARIADB_USER=nextcloud]
+    volumes: [./db:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 30
+  app:
+    image: nextcloud:30-apache
+    container_name: nextcloud
+    restart: always
+    env_file: .env
+    environment:
+      - MYSQL_HOST=db
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - NEXTCLOUD_ADMIN_USER=wetrun
+      - NEXTCLOUD_TRUSTED_DOMAINS=localhost 127.0.0.1
+    volumes: [./html:/var/www/html]
+    ports: ["127.0.0.1:8081:80"]
+    depends_on: {db: {condition: service_healthy}}

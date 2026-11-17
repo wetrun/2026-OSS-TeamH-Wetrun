@@ -26,3 +26,14 @@ runs/
 .vscode/
 .idea/
 .DS_Store
+
+# eval/services 시험 환경이 만드는 것
+eval/services/*/data/
+eval/services/*/html/
+eval/services/*/db/
+eval/services/*/backup/
+eval/services/*/restic-repo/
+eval/services/*/faults/
+eval/services/*/refs.json
+eval/services/*/secrets.env
+eval/services/*/.env

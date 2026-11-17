@@ -1,0 +1,18 @@
+# Gitea 공식 문서 형태 (SQLite, 데이터 폴더를 ./data로 연결)
+services:
+  server:
+    image: gitea/gitea:1.22
+    container_name: gitea
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - GITEA__database__DB_TYPE=sqlite3
+      - GITEA__security__INSTALL_LOCK=true
+      - GITEA__server__ROOT_URL=http://localhost:3000/
+    restart: always
+    volumes:
+      - ./data:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "127.0.0.1:3000:3000"
