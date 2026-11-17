@@ -26,7 +26,7 @@ TOP_KEYS = {
 SECTION_KEYS = {
     "repository": ({"path"}, {"password", "read_only"}),
     "snapshot": ({"tag"}, {"select", "max_age_days"}),
-    "compose": ({"files"}, {"env_file", "env", "mem_limit", "project_dir"}),
+    "compose": ({"files"}, {"env_file", "env", "mem_limit", "project_dir", "volumes"}),
     "notify": ({"discord"}, {"when"}),
 }  # 섹션 → (필수, 선택)
 COMMON_KEYS = {"use", "name", "timeout", "required"}
@@ -111,6 +111,12 @@ def load(path: Path) -> dict:
     ):
         # 실행 디렉터리 밖을 기준으로 하면 상대 경로가 운영 경로를 가리킨다
         problems.append('compose.project_dir: "{restore}"나 "{run}"으로 시작해야 함')
+    vols = compose.get("volumes")
+    if "volumes" in compose and not (
+        isinstance(vols, dict)
+        and all(isinstance(v, str) and v.startswith(RUN_PLACEHOLDERS) for v in vols.values())
+    ):
+        problems.append('compose.volumes: {볼륨 이름: "{restore}/..."} 매핑이어야 함')
     if "env_file" in compose:
         problems += _check_file("compose.env_file", base, compose["env_file"])
     if "refs" in wf:

@@ -124,6 +124,7 @@ class _Run:
                     {k: str(v) for k, v in self.resolve(c.get("env", {})).items()},
                     c.get("mem_limit"),
                     project_dir,
+                    {k: Path(self.resolve(v)) for k, v in c.get("volumes", {}).items()},
                 )
             except iso.IsolationError as e:
                 return Status.ERROR, "compose 설정을 쓸 수 없음", {"reason": str(e)}
