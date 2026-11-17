@@ -50,7 +50,7 @@ make env-clean YES=1   # 묻지 않고 삭제 (스크립트·반복 시험용)
 여러 번 실행해도 된다. 이미 있는 관리자·사진·앨범은 그대로 쓴다.
 asset id와 앨범 id는 환경마다 다르다. 파일 비교는 SHA-1로 한다.
 
-## 대용량 평가 데이터 (seed-dataset)
+## 크기별 측정용 데이터 (seed-dataset)
 
 복구·검사 시간이 데이터 개수에 따라 어떻게 늘어나는지 재기 위해 데이터셋 N개(JPEG 사진 + MP4 동영상)를 더 넣는다.
 휴대폰 사진·동영상의 형식·용량을 흉내 내서, 실제 크기 파일의 다운로드·복원 시간을 잴 수 있게 했다.
@@ -108,14 +108,14 @@ restic restore latest --target /tmp/restore-test   # /tmp/restore-test/data/... 
 | `up.sh`, `down.sh` | O | 실행·정리 스크립트 |
 | `common.sh` | O | 스크립트 공통 함수 (도구 확인, `.env` 읽기) |
 | `seed.py` | O | 테스트 데이터 넣기, `refs.json` 작성 (표준 라이브러리만 사용) |
-| `seed_dataset.py` | O | 대용량 평가용 JPEG·MP4 N개 추가 (`make seed-dataset N=...`) |
+| `seed_dataset.py` | O | 크기별 측정용 JPEG·MP4 N개 추가 (`make seed-dataset N=...`) |
 | `backup.sh` | O | DB 덤프와 restic 백업 |
 | `.env` | X | 실제 설정 (`.env.example` 복사본) |
 | `docker-compose.yml` | X | Immich 공식 파일. `up.sh`가 `.env`의 `IMMICH_VERSION`으로 준비한다 |
 | `docker-compose.<버전>.yml` | X | 받아 둔 공식 파일. 같은 버전이면 다시 받지 않아 네트워크 없이도 `env-up`이 된다 |
 | `data/` | X | 사진(`library/`), DB(`postgres/`), 백업 |
 | `samples/`, `refs.json` | X | seed.py가 만드는 샘플 사진과 정답지 |
-| `dataset/` | X | seed_dataset.py가 만드는 대용량 평가용 사진·동영상 |
+| `dataset/` | X | seed_dataset.py가 만드는 크기별 측정용 사진·동영상 |
 
 Immich 버전은 `.env.example`의 `IMMICH_VERSION`(현재 v3.3.5)으로 고정한다.
 버전을 바꾸려면 팀과 합의한 뒤 이 값만 고친다.
