@@ -44,4 +44,4 @@ testenv 완료 기준: 새로 clone해서 명령 한 줄로 같은 Immich + 백�
 
 ## 남은 일
 
-- timeout에 걸리는 검사: 크기별 측정 9회 중 timeout에 걸린 검사가 없었다(photos는 모두 "N개 전부 확인"). photos가 시간 안에 다 못 받는 경우, 즉 표본 검사("손상 1% 미만 (95% 신뢰도)")와 299개를 못 채운 `error`가 실제로 나오는지 확인하는 시험이 필요하다
+- (해결) timeout에 걸리는 검사: 1000개에서 photos `timeout`을 12초·6초로 줄여 표본 검사 pass("손상 0.6% 미만")와 299개 미만 `error`를 확인했다. 결과는 [eval/scale/README.md](../../eval/scale/README.md) "표본 검사 확인"

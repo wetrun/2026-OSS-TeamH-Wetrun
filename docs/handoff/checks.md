@@ -10,7 +10,7 @@
 |---|---|---|
 | 검사 공통 입출력 | `steps/_common.py` | 완료 (#14) |
 | 서비스 응답 확인 | `steps/http.py` | 완료 (#14) |
-| 파일 대조 | `steps/ref_files.py` | 완료 (#21, #22) |
+| 파일 대조 | `steps/ref_files.py` | 완료 (#21, #22, #39). 실제 크기 데이터로 전부 확인·표본 검사·error 실측 (아래 "실측") |
 | Immich 워크플로 | `profiles/immich/workflow.yaml` | 완료 (#23). WSL2 Ubuntu에서 `wetrun run` 전 단계 pass (검사 컨테이너 안 ref_files 포함) |
 | 리포트 | `report.py` | 완료 (#24). `wetrun run` 연결 (#29). 경고·백업 나이 표시 (계약 6절). `load_history`는 #41 |
 | 알림 | `notify.py` | 완료 (#26). `wetrun run` 연결 (#29). 카드 형식으로 바꿈 |
@@ -44,6 +44,18 @@
 4. 다운로드 대조: 원본을 받아 SHA-1 계산. 무작위 순서로 timeout까지 최대한 많이 본다. 전부 보면 "전부 확인", 3의 법칙이 요구하는 수(1%면 299) 이상이면 "1% 미만", 그보다 적으면 error
 
 서비스 고유의 API 경로와 응답 필드 이름은 워크플로가 알려 준다. 키는 `ref_files.py` 맨 위 설명을 본다.
+
+실측 (WSL2, `make seed-dataset N=995`로 만든 Immich 전체 1000개, photos `timeout`만 바꿔 실행):
+
+| photos `timeout` | 판정 | 확인한 개수 | 메시지 |
+|---|---|---|---|
+| 300초 (기본) | pass | 1000 / 1000 | 파일 1000개 전부 확인, 모두 원본과 일치 |
+| 12초 | pass | 504 / 1000 | 원본 1000개 중 504개를 무작위로 확인, 모두 일치. 손상 파일은 0.6% 미만 (95% 신뢰도, 시드 141507) |
+| 6초 | error | 238 / 1000 | timeout 안에 원본 238개만 확인 (모두 일치). 손상 1.0%를 잡으려면 299개가 필요함 … |
+
+- 299개보다 적게 보면 모두 일치해도 pass가 아니다 (6초)
+- 단계 시간(12초 → 15.2초)에는 검사 컨테이너를 띄우는 시간(약 3초)이 들어간다. `timeout`은 검사가 시작된 뒤부터 잰다
+- 기본 300초의 근거(3000개 약 12GiB도 54초에 전부 확인)는 [eval/scale/README.md](../../eval/scale/README.md) (#53)
 
 | 판정 | 언제 |
 |---|---|
@@ -142,15 +154,16 @@ notify:
 
 ## 알려진 한계
 
-- (해결) `http` 검사는 `headers`로 요청 헤더를 지정한다 (#50, Nextcloud 접속 주소 검사 대응). 헤더 값은 evidence에 남기지 않는다
-
-
 - ref_files는 앨범의 파일 수만 비교한다 (어떤 파일이 들었는지는 보지 않음)
 - 사진·동영상 등 종류별 최소 1개 샘플링은 없다 (testenv는 PNG뿐)
 - `profiles/immich/workflow.yaml`은 testenv 생성물(`../../testenv/`)을 가리킨다. 다른 Immich에는 경로를 바꿔 쓴다
-- 실제 크기 사진으로 다운로드 속도를 재지 않았다 (testenv는 작은 PNG 5장). 사진이 많으면 ref_files `timeout`을 늘려야 할 수 있다
 - 알림은 실제 Discord 채널(PC·휴대폰)에서 확인했다. pass는 무음, fail·error는 휴대폰 푸시가 울림 (고장 백업 4종과 restic 비밀번호 틀림으로 확인)
 - 기본 알림은 실패할 때만이라, wetrun이 아예 안 돌아도 조용하다 ("dead man's switch" 문제: 살아 있다는 신호가 없으면 멈춘 걸 모른다). 실행기 쪽에서 "잡지 않기로" 정했다 (design-decisions 12절). 매일 결과를 받으려면 `when: [pass, fail, error]`
+
+해결된 한계:
+
+- 실제 크기 사진의 다운로드 속도: 3000개(약 12GiB)까지 측정 (#53). 표본 검사와 299개 미만 error도 실측 (위 "실측")
+- `http` 검사는 요청 헤더를 못 바꿈: `headers` 추가 (#50, Nextcloud 접속 주소 검사 대응). 헤더 값은 evidence에 남기지 않는다
 
 ## 나중에 할 것
 
