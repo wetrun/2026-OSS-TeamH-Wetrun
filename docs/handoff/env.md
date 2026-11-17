@@ -12,7 +12,6 @@ testenv 완료 기준: 새로 clone해서 명령 한 줄로 같은 Immich + 백�
 | 시험용 Immich + 백업 | `testenv/`, `make env` | 완료 (#6~#9). WSL2·macOS에서 `make env` 확인 |
 | 크기별 측정용 데이터셋 | `testenv/seed_dataset.py`, `make seed-dataset N=...` | 완료 (#52). JPEG·MP4, 압축·중복 제거 안 되는 데이터 |
 | 데이터 크기별 성능 평가 | [eval/scale/README.md](../../eval/scale/README.md) | 300/1500/3000개 x 3회 측정, 9회 모두 pass |
-| 다른 서비스 범용성 | [eval/services/README.md](../../eval/services/README.md) | Gitea·Nextcloud 시험 (#47, #48, #50) |
 
 ## testenv에서 정한 값
 
@@ -45,8 +44,4 @@ testenv 완료 기준: 새로 clone해서 명령 한 줄로 같은 Immich + 백�
 
 ## 남은 일
 
-- 필수 설정 누락 시험: `env_file`에서 `DB_PASSWORD`를 빼거나(A) 다르게 하거나(B) 파일이 없을 때(C)의 판정 확인. 결과는 [test.md](test.md)와 공유
-- photos 표본 검사 확인(선택): timeout을 줄여(예: 20초) "손상 1% 미만" 메시지가 나오는지
-- 실제 휴대폰 사진으로 확인 실험(선택)
-- `refs.json`에 대응 스냅샷 ID 기록 (형식은 검사 담당과 합의). `make env-clean`이 `refs.json`을 지우지 않는 점도 같이
-- 사용자 문서 점검
+- timeout에 걸리는 검사: 크기별 측정 9회 중 timeout에 걸린 검사가 없었다(photos는 모두 "N개 전부 확인"). photos가 시간 안에 다 못 받는 경우, 즉 표본 검사("손상 1% 미만 (95% 신뢰도)")와 299개를 못 채운 `error`가 실제로 나오는지 확인하는 시험이 필요하다
