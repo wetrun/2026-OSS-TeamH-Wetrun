@@ -43,7 +43,8 @@ def to_dict(result: RunResult, secrets: Iterable[str] = ()) -> dict:
     return _mask(data, secrets)
 
 
-def summary(result: RunResult, secrets: Iterable[str] = ()) -> str:
+def summary(result: RunResult, secrets: Iterable[str] = (), steps: bool = True) -> str:
+    """steps=False면 단계 표를 뺀다. 진행 표시가 단계마다 이미 한 줄씩 보여 줬을 때 쓴다."""
     data = to_dict(result, secrets)
     age = backup_age(data)
     age = f" ({age})" if age else ""
@@ -53,10 +54,11 @@ def summary(result: RunResult, secrets: Iterable[str] = ()) -> str:
         *[f"참고: {one_line(w)}" for w in data["warnings"]],
         f"실행 {data['run_id']} · 스냅샷 {(data['snapshot_id'] or '-')[:8]}{age} · "
         f"{data['duration_s']}초",
-        "",
     ]
+    if steps:
+        lines.append("")
     width = max((len(s["name"]) for s in data["steps"]), default=0)
-    for s in data["steps"]:
+    for s in data["steps"] if steps else []:
         optional = "" if s["required"] else " (선택)"
         head = f"  {s['status']:<7}  {s['name']:<{width}}  {s['duration_s']:>6.1f}초"
         lines.append(f"{head}  {one_line(s['message'])}{optional}".rstrip())

@@ -14,6 +14,7 @@ import yaml
 from wetrun import notify, report, runner, schedule
 from wetrun.contract import EXIT_ERROR, EXIT_PASS, exit_code
 from wetrun.isolation import IsolationError, ensure_private_dir
+from wetrun.progress import Progress
 from wetrun.steps import ref_files
 from wetrun.workflow import WorkflowError, empty_env_refs, load
 
@@ -182,7 +183,8 @@ def _lock(path: Path):
 def _run(path: Path) -> int:
     try:
         history = report.load_history(report_dir(), runner.workflow_id(path))
-        result = runner.run(path, history)
+        progress = Progress()
+        result = runner.run(path, history, progress)
     except WorkflowError:
         return check_input(path)
     except IsolationError as e:
@@ -199,7 +201,9 @@ def _run(path: Path) -> int:
             f"wetrun run: 리포트를 저장하지 못함 ({e.strerror or type(e).__name__})",
             file=sys.stderr,
         )
-    print(report.summary(result, secrets))
+    # 터미널이면 진행 표시가 단계 표를 이미 보여 줬다
+    head = "\n" if progress.live else ""  # 진행 줄과 결과 사이를 한 줄 띄운다
+    print(head + report.summary(result, secrets, steps=not progress.live))
     if saved:
         print(f"리포트: {saved}")
     if "notify" in wf:
