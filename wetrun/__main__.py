@@ -2,20 +2,26 @@
 
 import argparse
 import fcntl
+import json
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
+
+import yaml
 
 from wetrun import notify, report, runner, schedule
 from wetrun.contract import EXIT_ERROR, EXIT_PASS, exit_code
 from wetrun.isolation import IsolationError, ensure_private_dir
-from wetrun.workflow import WorkflowError, load
+from wetrun.steps import ref_files
+from wetrun.workflow import WorkflowError, empty_env_refs, load
 
 COMMANDS = {
     "run": "워크플로 실행",
     "check-input": "실행 전 입력·지원 조건 검사",
     "schedule": "예약 실행 설정 생성",
+    "refs": "운영 서비스에서 정답지(refs.json) 만들기",
 }
 
 
@@ -32,12 +38,88 @@ def main(argv: list[str] | None = None) -> int:
     commands["schedule"].add_argument(
         "--env-file", type=Path, help="비밀 값(KEY=VALUE) 파일. 본인만 읽을 수 있어야 함"
     )
+    refs = commands["refs"]
+    refs.add_argument("--url", required=True, help="운영 서비스 주소. 예: http://localhost:2283")
+    refs.add_argument("-o", "--output", type=Path, help="저장할 곳. 기본: 워크플로의 refs")
+    refs.add_argument("--force", action="store_true", help="이미 있는 정답지를 덮어씀")
+    refs.add_argument("--timeout", type=float, default=3600, help="원본을 모두 받는 데 쓸 시간(초)")
     args = parser.parse_args(argv)
     if args.command == "check-input":
         return check_input(Path(args.workflow))
     if args.command == "run":
         return run(Path(args.workflow))
+    if args.command == "refs":
+        return refs_command(Path(args.workflow), args.url, args.output, args.force, args.timeout)
     return schedule_command(Path(args.workflow), args.at, args.env_file)
+
+
+def refs_command(path: Path, url: str, out: Path | None, force: bool, timeout: float) -> int:
+    """운영 서비스에서 정답지를 만든다. 검사(ref_files 단계)와 같은 설정으로 로그인·조회한다.
+
+    워크플로 전체를 검사하지 않고 ref_files 단계만 읽는다. 처음 만들 때는 refs 파일이 아직
+    없어서 check-input을 통과하지 못하기 때문이다.
+    """
+    try:
+        wf = yaml.safe_load(path.read_text(encoding="utf-8"))
+        step = next(s for s in wf["steps"] if isinstance(s, dict) and s.get("use") == "ref_files")
+    except (OSError, yaml.YAMLError, TypeError, KeyError, StopIteration):
+        return _refs_error(f"{path}: ref_files 단계를 찾지 못함")
+    empty = sorted(empty_env_refs(step))
+    if empty:
+        return _refs_error("환경 변수가 비어 있음: " + ", ".join(empty))
+    if out is None:
+        if not isinstance(wf.get("refs"), str):
+            return _refs_error("워크플로에 refs가 없음. -o로 저장할 곳을 지정하세요")
+        out = path.parent / wf["refs"]
+
+    step = {**_env_values(step), "url": url}
+    try:
+        refs, skipped = ref_files.make_refs(step, time.monotonic() + timeout)
+    except (ref_files.ServiceError, ref_files.ConfigError) as e:
+        return _refs_error(str(e))
+    except ref_files.OutOfTime:
+        return _refs_error(f"{timeout:.0f}초 안에 끝내지 못함. --timeout을 늘리세요")
+    if skipped:
+        print(
+            f"wetrun refs: 원본이 서비스 기록과 다르거나 받지 못한 파일 {len(skipped)}개는 "
+            f"넣지 않음{ref_files._names(skipped)}. 운영 데이터부터 확인하세요",
+            file=sys.stderr,
+        )
+    if not refs["assets"]:
+        return _refs_error("기준으로 쓸 파일이 하나도 없음")
+
+    # 정답지는 지워지면 되살리기 어렵다. --force 없이는 덮어쓰지 않는다
+    if out.exists() and not force:
+        return _refs_error(f"{out}: 이미 있음. 덮어쓰려면 --force")
+    # 다 쓴 뒤 한 번에 바꾼다. 백업 스크립트에서 매번 돌다가 중간에 끊겨도 지난 정답지가 남는다
+    tmp = out.with_name(f".{out.name}.tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(refs, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        os.replace(tmp, out)
+    except OSError as e:
+        return _refs_error(f"{out}: 저장하지 못함 ({e.strerror or type(e).__name__})")
+    albums = f", 앨범 {len(refs['albums'])}개" if "albums" in refs else ""
+    print(f"wetrun refs: 파일 {len(refs['assets'])}개{albums} → {out}")
+    return EXIT_PASS
+
+
+def _refs_error(message: str) -> int:
+    print(f"wetrun refs: {message}", file=sys.stderr)
+    return EXIT_ERROR
+
+
+def _env_values(obj):
+    """`env:<변수>`를 실제 값으로 바꾼다."""
+    if isinstance(obj, dict):
+        return {k: _env_values(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_env_values(v) for v in obj]
+    if isinstance(obj, str) and obj.startswith("env:"):
+        return os.environ[obj[4:]]
+    return obj
 
 
 def schedule_command(path: Path, at: str, env_file: Path | None) -> int:

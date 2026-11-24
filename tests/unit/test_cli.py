@@ -131,3 +131,69 @@ def test_lock_does_not_follow_symlink_or_truncate(monkeypatch, tmp_path, capsys)
     (lock_dir / f"{runner.workflow_id(wf)}.lock").unlink()
     lock_dir.chmod(0o777)
     assert cli.main(["run", str(wf)]) == 2
+
+
+def _refs_workflow(tmp_path, refs_line="refs: refs.json\n"):
+    path = tmp_path / "workflow.yaml"
+    path.write_text(
+        refs_line + "steps:\n"
+        "  - {use: restore}\n"
+        "  - {use: ref_files, name: photos, url: http://svc:1,"
+        " account: {password: env:WETRUN_TEST_PW}}\n"
+    )
+    return path
+
+
+def test_refs_writes_file_and_never_overwrites(monkeypatch, tmp_path, capsys):
+    import json
+    import stat
+
+    from wetrun import __main__ as cli
+    from wetrun.steps import ref_files
+
+    monkeypatch.setenv("WETRUN_TEST_PW", "topsecret")
+    seen = {}
+
+    def fake_make_refs(step, end):
+        seen.update(step)
+        return {"assets": [{"filename": "a.png", "sha1": "ab"}]}, ["bad.png"]
+
+    monkeypatch.setattr(ref_files, "make_refs", fake_make_refs)
+    path = _refs_workflow(tmp_path)
+    assert cli.main(["refs", str(path), "--url", "http://localhost:2283"]) == 0
+    assert seen["url"] == "http://localhost:2283"  # 격리 네트워크 주소 대신 운영 주소
+    assert seen["account"] == {"password": "topsecret"}  # env: 값을 넣어 준다
+    out = tmp_path / "refs.json"
+    assert json.loads(out.read_text())["assets"][0]["filename"] == "a.png"
+    assert stat.S_IMODE(out.stat().st_mode) == 0o600
+    captured = capsys.readouterr()
+    assert "파일 1개" in captured.out and "bad.png" in captured.err
+
+    out.write_text("기존 정답지")
+    assert cli.main(["refs", str(path), "--url", "http://localhost:2283"]) == 2
+    assert out.read_text() == "기존 정답지"
+    assert "--force" in capsys.readouterr().err
+    assert cli.main(["refs", str(path), "--url", "http://localhost:2283", "--force"]) == 0
+    assert "a.png" in out.read_text()
+    assert stat.S_IMODE(out.stat().st_mode) == 0o600
+    assert not (tmp_path / ".refs.json.tmp").exists()  # 임시 파일을 남기지 않는다
+
+
+def test_refs_errors_before_contacting_service(monkeypatch, tmp_path, capsys):
+    from wetrun import __main__ as cli
+    from wetrun.steps import ref_files
+
+    monkeypatch.setattr(ref_files, "make_refs", lambda *a: pytest.fail("서비스에 접속하면 안 됨"))
+    monkeypatch.delenv("WETRUN_TEST_PW", raising=False)
+    path = _refs_workflow(tmp_path)
+    assert cli.main(["refs", str(path), "--url", "http://x"]) == 2
+    assert "WETRUN_TEST_PW" in capsys.readouterr().err
+
+    monkeypatch.setenv("WETRUN_TEST_PW", "pw")
+    path = _refs_workflow(tmp_path, refs_line="")
+    assert cli.main(["refs", str(path), "--url", "http://x"]) == 2
+    assert "-o" in capsys.readouterr().err
+
+    path.write_text("steps: [{use: restore}]\n")
+    assert cli.main(["refs", str(path), "--url", "http://x"]) == 2
+    assert "ref_files 단계를 찾지 못함" in capsys.readouterr().err

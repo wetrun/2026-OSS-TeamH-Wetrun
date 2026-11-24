@@ -130,7 +130,7 @@ def load(path: Path) -> dict:
         problems.append("steps: 비어 있지 않은 목록이어야 함")
         steps = []
     problems += _check_steps(steps or [], base)
-    problems += [f"env:{v}: 환경 변수가 비어 있음" for v in sorted(_empty_env_refs(wf))]
+    problems += [f"env:{v}: 환경 변수가 비어 있음" for v in sorted(empty_env_refs(wf))]
 
     if problems:
         raise WorkflowError(problems)
@@ -209,12 +209,12 @@ def _check_file(where: str, base: Path, value) -> list[str]:
     return []
 
 
-def _empty_env_refs(obj) -> set[str]:
+def empty_env_refs(obj) -> set[str]:
     """`env:<변수>` 참조 중 값이 비어 있는 변수."""
     if isinstance(obj, dict):
-        return set().union(*map(_empty_env_refs, obj.values()))
+        return set().union(*map(empty_env_refs, obj.values()))
     if isinstance(obj, list):
-        return set().union(*map(_empty_env_refs, obj))
+        return set().union(*map(empty_env_refs, obj))
     if isinstance(obj, str) and obj.startswith("env:") and not os.environ.get(obj[4:]):
         return {obj[4:]}
     return set()

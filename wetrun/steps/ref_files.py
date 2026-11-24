@@ -258,14 +258,19 @@ def _names(names: list[str]) -> str:
     return f": {shown}{more}" if names else ""
 
 
-def _check_albums(api: "_Api", spec: dict, ref_albums: list) -> list[str]:
+def _album_counts(api: "_Api", spec: dict) -> dict:
+    """앨범 이름 → 파일 수"""
     status, resp = api.json("GET", spec["path"])
     _expect_ok(status, "앨범 목록 조회")
     if not isinstance(resp, list):
         raise ConfigError("albums 응답이 목록이 아님")
-    counts = {
+    return {
         _get(a, spec["name"], "albums.name"): _get(a, spec["count"], "albums.count") for a in resp
     }
+
+
+def _check_albums(api: "_Api", spec: dict, ref_albums: list) -> list[str]:
+    counts = _album_counts(api, spec)
     problems = []
     for ref in ref_albums:
         name, expected = ref["name"], ref["asset_count"]
@@ -274,6 +279,40 @@ def _check_albums(api: "_Api", spec: dict, ref_albums: list) -> list[str]:
         elif counts[name] < expected:
             problems.append(f"{name}: 파일 {counts[name]}개 (기준 {expected}개)")
     return problems
+
+
+# ---- 정답지 만들기 (wetrun refs) ----
+
+
+def make_refs(step: dict, end: float) -> tuple[dict, list[str]]:
+    """운영 서비스에서 정답지(refs.json 내용)를 만든다. 검사와 같은 설정을 쓴다.
+
+    원본을 받아 SHA-1을 직접 계산한다. 서비스 기록과 다르거나 받지 못한 파일은 운영 데이터가
+    이미 망가졌을 수 있으므로 넣지 않고, 그 이름을 함께 돌려준다.
+    로그인 거부·응답 없음은 ServiceError, 설정 문제는 ConfigError, 시간 초과는 OutOfTime.
+    """
+    cfg = _config(step)
+    api = _Api(cfg["url"], end)
+    status, body = api.json("POST", cfg["login"]["path"], cfg["account"])
+    _expect_ok(status, "로그인")
+    api.token = _get(body, cfg["login"]["token"], "login.token")
+
+    assets, skipped = [], []
+    for item in _list_assets(api, cfg["assets"]):
+        try:
+            actual = api.sha1(cfg["download"].replace("{id}", str(item["id"])))
+        except ServiceError:
+            skipped.append(item["name"])
+            continue
+        if actual != item["sha1"]:
+            skipped.append(item["name"])
+            continue
+        assets.append({"filename": item["name"], "sha1": actual})
+    refs: dict = {"assets": assets}
+    if cfg["albums"]:
+        counts = _album_counts(api, cfg["albums"])
+        refs["albums"] = [{"name": n, "asset_count": c} for n, c in counts.items()]
+    return refs, skipped
 
 
 # ---- 설정 ----
