@@ -95,7 +95,20 @@ uv run wetrun check-input workflow.yaml   # 아무것도 띄우지 않고 입력
 uv run wetrun run workflow.yaml
 ```
 
-출력 예:
+터미널에서 실행하면 단계마다 진행 상황이 나온다. 실행 중인 단계는 회색 한 줄(`[3/6] restore-db   명령 실행 중... 12초`)로 갱신되다가, 끝나면 판정(pass 초록, fail 빨강, error 노랑)·걸린 시간·메시지로 바뀐다. 끝난 줄이 단계 표가 되므로 마지막 요약에는 결과와 할 일만 나온다. 색을 끄려면 `NO_COLOR=1`.
+
+```
+[1/6] restore      pass     6.9초  스냅샷 복원
+...
+[6/6] photos       pass     3.2초  파일 5개 전부 확인, 모두 원본과 일치
+정리 완료 0.8초
+
+Wetrun 결과: PASS (종료 코드 0)
+실행 20261124-132041-dc60dd · 스냅샷 bff850f9 (1시간 안) · 104.4초
+리포트: /home/me/.local/share/wetrun/runs/20261124-132041-dc60dd.json
+```
+
+cron 로그나 파일로 받을 때는 진행 표시 없이 끝난 뒤 요약만, 단계 표를 포함해 나온다. 출력 예:
 
 ```
 Wetrun 결과: FAIL (종료 코드 1)

@@ -60,6 +60,14 @@ def test_summary_shows_messages_not_evidence():
     assert "ERROR: x" not in text  # stderr는 JSON 리포트에만
 
 
+def test_summary_without_step_table():
+    """터미널에서는 진행 표시가 단계 표를 보여 주므로 요약은 결과와 할 일만 남긴다."""
+    step = StepResult("restore-db", "exec", Status.FAIL, message="명령이 실패함")
+    text = report.summary(result(step), steps=False)
+    assert "FAIL" in text and "restore-db 단계를 확인" in text  # 할 일은 남는다
+    assert "명령이 실패함" not in text and text == text.rstrip()
+
+
 def test_summary_marks_optional_and_cleanup():
     step = StepResult("custom", "script", Status.FAIL, required=False, message="x")
     text = report.summary(result(*PASSED, step, cleanup_errors=["volume 남음"]))

@@ -351,10 +351,11 @@ class _Run:
         return f"{self.project}_{'default' if 'default' in names else next(iter(names))}"
 
 
-def run(path: Path, history: list[dict] | None = None) -> RunResult:
+def run(path: Path, history: list[dict] | None = None, progress=None) -> RunResult:
     """워크플로를 실행한다. 입력 오류는 workflow.WorkflowError로 아무것도 띄우기 전에 알린다.
 
     history: 같은 워크플로의 지난 리포트(최근 순). 시간 제한·경고·메모리 확인에 쓴다 (계약 6절).
+    progress: 진행 표시(progress.Progress). 단계 시작·끝과 정리 때 부른다. 없으면 조용히 돈다.
     """
     wf = workflow.load(path)
     history = history or []
@@ -362,14 +363,21 @@ def run(path: Path, history: list[dict] | None = None) -> RunResult:
     ctx = _Run(wf, path, history)
     results: list[StepResult] = []
     previous = signal.signal(signal.SIGTERM, _raise_interrupt)
+    found = secrets(wf)
+    hide = sorted(found, key=len, reverse=True)
     try:
         iso.ensure_unused(ctx.project)
         iso.ensure_visible(ctx.run_dir)
         stopped = False
+        total = len(wf["steps"])
         for i, step in enumerate(wf["steps"]):
             if stopped:
                 results.append(_result(step, Status.SKIPPED, "앞 필수 단계가 통과하지 못함", {}, 0))
+                if progress:
+                    progress.done(i + 1, total, step["name"], "skipped", 0, results[-1].message)
                 continue
+            if progress:
+                progress.start(i + 1, total, step["name"], step["use"])
             s0 = time.monotonic()
             if (adjusted := adaptive_timeout(history, step)) is not None:
                 step = {**step, "timeout": adjusted}
@@ -379,17 +387,29 @@ def run(path: Path, history: list[dict] | None = None) -> RunResult:
                     evidence = {**evidence, "timeout_s": adjusted, "timeout_from": "history"}
             except KeyboardInterrupt:
                 results.append(_result(step, Status.ERROR, "중단됨", {}, time.monotonic() - s0))
+                if progress:
+                    progress.done(
+                        i + 1, total, step["name"], "error", results[-1].duration_s, "중단됨"
+                    )
                 stopped = True
                 continue
             result = _result(step, status, message, evidence, time.monotonic() - s0)
             result.timed_out = ctx.timed_out
             results.append(result)
+            if progress:
+                note = report.one_line(report.mask_text(message, hide))
+                note += "" if step["required"] else " (선택)"
+                progress.done(i + 1, total, step["name"], str(status), result.duration_s, note)
             stopped = step["required"] and status != Status.PASS
     finally:
         signal.signal(signal.SIGTERM, previous)
+        if progress:
+            progress.cleanup_start()
+        c0 = time.monotonic()
         cleanup_errors = iso.cleanup(ctx.project, ctx.run_dir)
+        if progress:
+            progress.cleanup_done(not cleanup_errors, time.monotonic() - c0)
 
-    found = secrets(wf)
     return RunResult(
         run_id=ctx.run_id,
         snapshot_id=ctx.snapshot_id,

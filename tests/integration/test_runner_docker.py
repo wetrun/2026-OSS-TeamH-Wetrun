@@ -93,7 +93,27 @@ def test_healthy_backup_passes(setup):
     assert not result.cleanup_errors and not any(leftovers(result).values())
 
 
+class RecordProgress:
+    """진행 표시 호출을 순서대로 남긴다."""
+
+    def __init__(self):
+        self.calls = []
+
+    def start(self, index, total, name, use):
+        self.calls.append(("start", index, total, name))
+
+    def done(self, index, total, name, status, seconds, message=""):
+        self.calls.append(("done", index, total, name, status))
+
+    def cleanup_start(self):
+        self.calls.append(("cleanup_start",))
+
+    def cleanup_done(self, ok, seconds):
+        self.calls.append(("cleanup_done", ok))
+
+
 def test_missing_data_fails_and_skips_rest(setup):
+    progress = RecordProgress()
     result = runner.run(
         setup(
             [
@@ -102,11 +122,24 @@ def test_missing_data_fails_and_skips_rest(setup):
                 {"use": "http", "url": "http://web:8000/missing.txt", "timeout": 5},
                 {"use": "script", "image": "alpine:3", "command": ["sh", "-c", SCRIPT_PASS]},
             ]
-        )
+        ),
+        progress=progress,
     )
     assert [s.status for s in result.steps][2:] == [Status.FAIL, Status.SKIPPED]
     assert exit_code(result) == EXIT_FAIL
     assert not any(leftovers(result).values())
+    # 단계마다 시작·끝을 알리고, 건너뛴 단계는 끝만, 마지막에 정리
+    assert progress.calls == [
+        ("start", 1, 4, "restore"),
+        ("done", 1, 4, "restore", "pass"),
+        ("start", 2, 4, "up"),
+        ("done", 2, 4, "up", "pass"),
+        ("start", 3, 4, "http"),
+        ("done", 3, 4, "http", "fail"),
+        ("done", 4, 4, "script", "skipped"),
+        ("cleanup_start",),
+        ("cleanup_done", True),
+    ]
 
 
 def docker_sees(path) -> bool:
