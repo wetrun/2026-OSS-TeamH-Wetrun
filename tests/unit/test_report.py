@@ -64,7 +64,7 @@ def test_summary_without_step_table():
     """터미널에서는 진행 표시가 단계 표를 보여 주므로 요약은 결과와 할 일만 남긴다."""
     step = StepResult("restore-db", "exec", Status.FAIL, message="명령이 실패함")
     text = report.summary(result(step), steps=False)
-    assert "FAIL" in text and "restore-db 단계를 확인" in text  # 할 일은 남는다
+    assert "FAIL" in text and "restore-db 단계와 JSON 리포트 확인" in text  # 할 일은 남는다
     assert "명령이 실패함" not in text and text == text.rstrip()
 
 
@@ -83,7 +83,7 @@ def test_next_action_points_to_first_bad_required_step():
         StepResult("up", "up", Status.SKIPPED),
     ]
     text = report.summary(result(*steps))
-    assert "할 일: 백업이나 복구한 데이터에 문제가 있음. restore-db 단계를 확인" in text
+    assert "할 일: 백업 데이터 점검. restore-db 단계와 JSON 리포트 확인" in text
     assert "custom 단계" not in text
 
 
@@ -94,14 +94,14 @@ def test_next_action_for_error_says_not_a_backup_problem():
     ]
     actions = report.next_actions(report.to_dict(result(*steps)))
     assert len(actions) == 1
-    assert "백업이 망가졌다는 뜻은 아님" in actions[0] and "ready 단계" in actions[0]
+    assert "백업 문제 아님" in actions[0] and "ready 단계" in actions[0]
 
 
 def test_next_action_for_cleanup_and_nothing_for_pass():
     assert report.next_actions(report.to_dict(result(*PASSED))) == []
     assert "할 일" not in report.summary(result(*PASSED))
     actions = report.next_actions(report.to_dict(result(*PASSED, cleanup_errors=["network 남음"])))
-    assert actions == ["남은 자원을 직접 지워야 함 (아래 정리 오류)"]
+    assert actions == ["남은 자원 직접 삭제 (아래 정리 오류)"]
 
 
 def test_long_message_is_cut():

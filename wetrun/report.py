@@ -26,8 +26,8 @@ MASK = "***"
 MAX_MESSAGE = 200  # 요약에서 단계 메시지를 이 길이로 자른다
 # 판정 → 운영자가 알아야 할 뜻 (계약 2절: fail은 백업·복구 문제, error는 검사를 끝까지 못 함)
 MEANING = {
-    "fail": "백업이나 복구한 데이터에 문제가 있음",
-    "error": "검사를 끝까지 하지 못함 (환경·설정 문제이고, 백업이 망가졌다는 뜻은 아님)",
+    "fail": "백업 데이터 점검",
+    "error": "환경·설정 점검 (백업 문제 아님)",
 }
 
 
@@ -72,14 +72,14 @@ def next_actions(data: dict) -> list[str]:
     """to_dict() 결과를 보고 할 일을 한 줄씩. 정리 실패가 먼저다 (종료 코드 3이 판정보다 우선)."""
     actions = []
     if data["cleanup_errors"]:
-        actions.append("남은 자원을 직접 지워야 함 (아래 정리 오류)")
+        actions.append("남은 자원 직접 삭제 (아래 정리 오류)")
     v = data["verdict"]
     if v in MEANING:
         first = next((s for s in data["steps"] if s["required"] and s["status"] == v), None)
         if first:
-            actions.append(f"{MEANING[v]}. {first['name']} 단계를 확인 (JSON 리포트 확인)")
+            actions.append(f"{MEANING[v]}. {first['name']} 단계와 JSON 리포트 확인")
         else:  # 필수 단계가 하나도 없음 (contract.verdict)
-            actions.append(f"{MEANING[v]}. 필수 단계가 없음")
+            actions.append(f"{MEANING[v]}. 필수 단계 없음")
     return actions
 
 
