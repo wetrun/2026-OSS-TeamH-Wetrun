@@ -77,7 +77,7 @@ def next_actions(data: dict) -> list[str]:
     if v in MEANING:
         first = next((s for s in data["steps"] if s["required"] and s["status"] == v), None)
         if first:
-            actions.append(f"{MEANING[v]}. {first['name']} 단계를 확인 (근거는 JSON 리포트)")
+            actions.append(f"{MEANING[v]}. {first['name']} 단계를 확인 (JSON 리포트 확인)")
         else:  # 필수 단계가 하나도 없음 (contract.verdict)
             actions.append(f"{MEANING[v]}. 필수 단계가 없음")
     return actions
