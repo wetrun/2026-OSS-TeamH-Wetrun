@@ -320,3 +320,32 @@ def test_mismatch_count_is_not_capped(service, io, monkeypatch):
     _, message, evidence = ref_files.check(step(service))
     assert evidence["download"]["mismatch"] in (["a.png"], ["b.png"])  # 순서는 무작위
     assert message.startswith("다운로드한 원본이 다른 파일 2개: ")
+
+
+# --- 정답지 만들기 (wetrun refs) ---
+
+
+def test_made_refs_pass_the_check(service, io):
+    refs, skipped = ref_files.make_refs(step(service), time.monotonic() + 10)
+    assert skipped == []
+    assert refs == {
+        "assets": [{"filename": n, "sha1": sha1(d)} for n, d in sorted(PHOTOS.items())],
+        "albums": [{"name": "trip", "asset_count": 2}],
+    }
+    (io / "refs.json").write_text(json.dumps(refs))
+    status, message, _ = ref_files.check(step(service))
+    assert status is Status.PASS, message
+
+
+def test_damaged_live_file_is_left_out(service):
+    service.files["b.png"] = b"broken"  # 운영 원본이 서비스 기록과 다름
+    service.gone.add("c.png")  # 운영 원본을 받을 수 없음
+    refs, skipped = ref_files.make_refs(step(service), time.monotonic() + 10)
+    assert [r["filename"] for r in refs["assets"]] == ["a.png"]
+    assert skipped == ["b.png", "c.png"]
+
+
+def test_make_refs_login_rejected(service):
+    service.login_status = 401
+    with pytest.raises(ref_files.ServiceError):
+        ref_files.make_refs(step(service), time.monotonic() + 10)
