@@ -3,13 +3,13 @@
 [![ci](https://github.com/wetrun/2026-OSS-TeamH-Wetrun/actions/workflows/ci.yml/badge.svg)](https://github.com/wetrun/2026-OSS-TeamH-Wetrun/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-**백업을 실제로 복구해서 사용자처럼 써 보고, 그 백업으로 정말 서비스를 되살릴 수 있는지 판정하는 CLI.**
+**백업을 실제로 복구해 사용자처럼 써 보고, 서비스를 되살릴 수 있는지 판정하는 CLI.**
 
 restic 백업으로 Docker Compose 서비스를 운영과 끊긴 격리 환경에 복구한 뒤, 로그인·목록 조회·원본 다운로드까지 해 본다.
 결과는 `pass`·`fail`·`error`로 나누어 터미널 요약, JSON 리포트, Discord 알림으로 알린다. 첫 대상 서비스는 [Immich](https://immich.app)(사진 관리)다.
 
 <p align="center">
-  <img src="docs/images/alert-fail.png" width="480" alt="FAIL 알림 카드. restore부터 ready까지 통과하고 photos 단계에서 실패, 이유는 원본 다운로드 실패 (HTTP 404): sample-04-purple.png">
+  <img src="docs/images/alert-fail.png" width="560" alt="FAIL 알림 카드. restore부터 ready까지 통과하고 photos 단계에서 실패, 이유는 원본 다운로드 실패 (HTTP 404): sample-04-purple.png">
 </p>
 <p align="center"><sub>사진 원본 1장을 지운 백업을 검사한 Discord 알림. 서버 응답 확인(ready)은 통과했고, 원본을 내려받는 photos 단계에서 잡았다.</sub></p>
 
@@ -21,10 +21,10 @@ restic 백업으로 Docker Compose 서비스를 운영과 끊긴 격리 환경�
 
 ## 특징
 
-- **사용자처럼 검사한다.** 서버가 떴는지만 보지 않고 로그인 → 목록 → 원본 다운로드까지 한다. 서비스에 기록된 체크섬은 전부, 원본 파일은 무작위 순서로 시간 안에서 최대한 받아 SHA-1을 정답지와 비교한다.
+- **사용자처럼 검사한다.** 서버가 떴는지만 보지 않고 로그인 → 목록 → 원본 다운로드까지 해서 정답지와 비교한다.
 - **백업 문제와 환경 문제를 나눈다.** 백업을 고쳐야 하면 `fail`, 설정·환경을 고쳐야 하면 `error`다. 검사 코드가 예외로 죽어도 `fail`(백업 고장)로 기록되지 않는다.
-- **확인한 범위만 말한다.** "손상 없음" 대신 "파일 1000개 전부 확인" 또는 "504개를 무작위로 확인, 손상 파일은 0.6% 미만 (95% 신뢰도)"처럼 근거가 있는 문장만 쓴다.
-- **서비스 이름을 모르는 본체.** `wetrun/`에는 서비스 이름이 없고(CI가 검사), 서비스별 내용은 워크플로 YAML 하나에 적는다. Immich·Gitea·Nextcloud로 확인했다.
+- **확인한 범위만 말한다.** 원본은 시간 안에서 무작위로 최대한 받고, "손상 없음" 대신 "파일 1000개 전부 확인" 또는 "504개를 무작위로 확인, 손상 파일은 0.6% 미만 (95% 신뢰도)"처럼 근거가 있는 문장만 쓴다.
+- **특정 서비스에 묶이지 않는다.** 본체(`wetrun/`)에는 서비스 이름이 없고(CI가 검사), 서비스별 내용은 워크플로 YAML 하나에 적는다. Immich·Gitea·Nextcloud로 확인했다.
 - **운영을 건드리지 않는다.** 검증용 서비스는 바깥과 끊긴 네트워크에 띄우고, 판정과 상관없이 끝나면 항상 치운다.
 
 ## 동작 흐름
@@ -37,31 +37,36 @@ flowchart TB
     end
     subgraph K["② 검사 · 사용자처럼 써 보기"]
         direction LR
-        E["ready<br>응답 확인"] --> F["photos<br>로그인 후<br>원본 대조"]
+        E["ready<br>응답 확인"] --> F["photos<br>로그인·원본 대조"]
     end
     subgraph O["③ 정리와 결과"]
         direction LR
-        G["정리 · 항상<br>컨테이너 삭제"] --> H{"판정"} --> I["요약<br>JSON 리포트"]
-        H -.->|"fail · error"| J["Discord 알림"]
+        G["정리 · 항상<br>컨테이너 삭제"] --> H["판정<br>pass · fail · error"] --> I["요약<br>JSON 리포트"]
+        I -.->|"fail · error"| J["Discord<br>알림"]
     end
     R --> K --> O
+    classDef step fill:transparent,stroke:#8b949e,stroke-width:1px
+    class A,B,C,D,E,F,G,H,I,J step
+    style R fill:transparent,stroke:#8b949e
+    style K fill:transparent,stroke:#2da44e,stroke-width:2px
+    style O fill:transparent,stroke:#8b949e
 ```
 
 Immich 워크플로([`profiles/immich/workflow.yaml`](profiles/immich/workflow.yaml))의 6단계다. 필수 단계가 통과하지 못하면 남은 단계는 건너뛰고 바로 정리한다.
-알림은 워크플로에 설정했을 때만 보내고, 기본은 `fail`·`error`일 때다.
+알림은 워크플로에 설정했을 때만 보내고, 기본은 `fail`·`error`일 때다. 정리 실패는 설정과 상관없이 항상 알린다.
 
 ## 판정
 
 | 판정 | 종료 코드 | 뜻 | 할 일 |
 |---|---|---|---|
 | `pass` | 0 | 백업으로 서비스를 되살릴 수 있다 | 없음 |
-| `fail` | 1 | 백업이나 복구한 데이터에 문제가 있다 (사진 누락, 해시 다름, 덤프 손상) | 백업을 고친다 |
-| `error` | 2 | 검사를 끝까지 하지 못했다. 백업이 망가졌다는 뜻은 아니다 | 설정·환경을 고친다 |
-| 정리 실패 | 3 | 검증용 자원이 남았다. 판정보다 우선한다 | 남은 자원을 지운다 |
+| `fail` | 1 | 백업이나 복구한 데이터에 문제가 있다 | 백업을 고친다 |
+| `error` | 2 | 검사를 끝까지 못 했다 (백업 문제 아님) | 설정·환경을 고친다 |
+| 정리 실패 | 3 | 검증용 자원이 남았다 (판정보다 우선) | 남은 자원을 지운다 |
 
 ## 무엇을 잡나
 
-Immich로 정상 백업과 일부러 망가뜨린 백업을 돌린 결과다 [측정].
+Immich로 정상 백업과 일부러 망가뜨린 백업을 직접 돌려 본 결과다.
 
 | 백업 | 판정 | 잡은 단계 | 메시지 |
 |---|---|---|---|
@@ -85,11 +90,12 @@ Immich로 정상 백업과 일부러 망가뜨린 백업을 돌린 결과다 [�
 git clone https://github.com/wetrun/2026-OSS-TeamH-Wetrun.git
 cd 2026-OSS-TeamH-Wetrun
 make install
-make env      # 시험용 Immich를 띄우고 사진을 넣은 뒤 restic 백업까지 만든다 (testenv)
+make env    # 시험용 Immich + 사진 + restic 백업 (testenv)
 
-export RESTIC_PASSWORD=resticpwd TESTENV_ADMIN_PASSWORD=testpwd   # testenv 전용 공개 시험값
-uv run wetrun check-input profiles/immich/workflow.yaml   # 아무것도 띄우지 않고 입력만 검사
-uv run wetrun run profiles/immich/workflow.yaml           # 복구·검사 (약 1~2분)
+# testenv 전용 공개 시험값
+export RESTIC_PASSWORD=resticpwd TESTENV_ADMIN_PASSWORD=testpwd
+uv run wetrun check-input profiles/immich/workflow.yaml   # 입력만 검사
+uv run wetrun run profiles/immich/workflow.yaml           # 복구·검사 (1~2분)
 ```
 
 터미널에서는 단계마다 진행 상황이 나오고, 끝나면 결과와 리포트 위치가 나온다.
@@ -116,15 +122,16 @@ Wetrun 결과: PASS (종료 코드 0)
    ```sh
    uv run wetrun refs workflow.yaml --url http://localhost:2283
    ```
-3. **알림 켜기**: 웹훅 주소는 비밀 값이라 `env:`로만 쓴다.
+3. **알림 켜기**: 웹훅 주소는 비밀 값이라 `env:`로만 쓴다. `pass`를 켜면 소리 없이 온다.
    ```yaml
    notify:
      discord: env:WETRUN_DISCORD_WEBHOOK
-     when: [fail, error]     # 기본값. 매번 받으려면 [pass, fail, error] (pass는 무음)
+     when: [fail, error]   # 기본값. 매번 받으려면 [pass, fail, error]
    ```
 4. **매일 실행**: 아래 명령이 출력하는 한 줄을 `crontab -e`에 붙여 넣는다. 같은 워크플로는 동시에 하나만 돈다.
    ```sh
-   uv run wetrun schedule workflow.yaml --at 03:30 --env-file ~/.config/wetrun.env
+   uv run wetrun schedule workflow.yaml --at 03:30 \
+     --env-file ~/.config/wetrun.env
    ```
 
 자세한 방법과 자주 겪는 문제는 [사용 안내](docs/user-guide.md)에 있다.
@@ -148,6 +155,8 @@ Wetrun 결과: PASS (종료 코드 0)
 | [testenv/](testenv/README.md) | 개발·평가용 Immich 환경 |
 | [CONTRIBUTING.md](CONTRIBUTING.md), [docs/onboarding.md](docs/onboarding.md) | 기여 규칙, 개발 환경 |
 
+### 저장소 구조
+
 | 경로 | 내용 |
 |---|---|
 | `wetrun/` | 본체: 실행기, restic 어댑터, 내장 검사(`steps/`), 리포트·알림. 서비스 이름 없음 |
@@ -162,10 +171,10 @@ Wetrun 결과: PASS (종료 코드 0)
 
 | 이름 | 역할 | GitHub |
 |---|---|---|
-| 차은호 | 실행기 (복구·격리·정리) | [chaeunho1227](https://github.com/chaeunho1227) |
-| 조정민 | 검사·출력 (검사, 리포트, 알림) | [YoungB0](https://github.com/YoungB0) |
-| 정순준 | 테스트 환경, 규모 평가 | [soonjun1212-DGU](https://github.com/soonjun1212-DGU) |
-| 김영모 | 테스트, 고장 평가 | [rlazeroah](https://github.com/rlazeroah) |
+| 차은호 | 실행기 | [chaeunho1227](https://github.com/chaeunho1227) |
+| 조정민 | 검사·출력 | [YoungB0](https://github.com/YoungB0) |
+| 정순준 | 환경·성능·사용자 평가·문서 | [soonjun1212-DGU](https://github.com/soonjun1212-DGU) |
+| 김영모 | 테스트·평가 | [rlazeroah](https://github.com/rlazeroah) |
 
 ## 라이선스
 
