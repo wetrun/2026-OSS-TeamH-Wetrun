@@ -4,7 +4,19 @@
 
 ## 고장 백업 만드는 방법
 
-실행기 작업 중 손으로 만들어 확인한 방법이다 (#13, #30). `faults/` 스크립트로 옮길 때 출발점으로 쓴다.
+`make env` 뒤에 `make faults` 한 줄로 만든다. `faults/make-faults.sh`가 아래 절차를 그대로 실행해 `~/wetrun-faults/`에 저장소 사본(고장 스냅샷 4개)과 고장별 워크플로 `wf-<태그>.yaml`을 만든다.
+
+```sh
+make env
+make faults            # NOTIFY=1 make faults 이면 워크플로에 Discord 알림 설정을 붙인다
+export RESTIC_PASSWORD=resticpwd TESTENV_ADMIN_PASSWORD=testpwd
+uv run wetrun run ~/wetrun-faults/wf-missing-photo.yaml; echo "exit=$?"
+```
+
+- 결과 폴더는 `WETRUN_FAULTS_DIR`로 바꿀 수 있다(절대 경로, 저장소 밖). 실행할 때마다 지우고 새로 만든다.
+- 알림을 켜면 워크플로에는 `discord: env:WETRUN_DISCORD_WEBHOOK`만 쓴다. 웹훅 주소는 비밀 값이라 파일에 남기지 않고, 실행할 때 환경 변수로 넘긴다. 변수가 비어 있으면 입력 검사에서 `error`로 멈춘다.
+
+아래는 실행기 작업 중 손으로 만들어 확인한 원래 절차다 (#13, #30). 스크립트가 하는 일과 같다.
 
 ### 원칙
 

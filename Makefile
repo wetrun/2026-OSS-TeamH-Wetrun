@@ -35,10 +35,14 @@ seed-dataset:
 # 새로 clone한 뒤 이 한 줄로 Immich + 테스트 데이터 + 백업을 만든다
 env: env-up seed backup
 
+# 고장 백업 4종과 고장별 워크플로를 ~/wetrun-faults/에 만든다 (make env 뒤). NOTIFY=1이면 Discord 알림 설정 추가
+faults:
+	faults/make-faults.sh
+
 env-down:
 	testenv/down.sh
 
 env-clean:
 	testenv/down.sh --clean
 
-.PHONY: install fmt lint test env env-up seed seed-dataset backup env-down env-clean
+.PHONY: install fmt lint test env env-up seed seed-dataset backup faults env-down env-clean
